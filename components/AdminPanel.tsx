@@ -335,16 +335,18 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                       <tr key={p.id} className="border-b border-gray-50 last:border-0">
                         <td className="px-4 py-3 font-medium text-gray-900">{p.full_name}</td>
                         <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
-                            p.role === 'admin' ? 'bg-purple-100 text-purple-700' :
-                            p.role === 'sales_manager' ? 'bg-blue-100 text-blue-700' :
-                            p.role === 'applicator' ? 'bg-green-100 text-green-700' :
-                            'bg-gray-100 text-gray-600'
-                          }`}>
-                            {p.role === 'sales_manager' ? 'Sales Manager' :
-                             p.role === 'applicator' ? 'Applicator' :
-                             p.role === 'viewer' ? 'Viewer' : p.role}
-                          </span>
+                          {p.id === profile.id ? (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700">
+                              Admin (you)
+                            </span>
+                          ) : (
+                            <RoleSelect
+                              userId={p.id}
+                              currentRole={p.role}
+                              supabase={supabase}
+                              onChanged={fetchData}
+                            />
+                          )}
                         </td>
                         <td className="px-4 py-3 text-gray-500">
                           {format(parseISO(p.created_at), 'MMM d, yyyy')}
@@ -395,6 +397,52 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
         </>
       )}
     </div>
+  )
+}
+
+// ─── Role Select ─────────────────────────────────────────────────────────────
+
+function RoleSelect({
+  userId,
+  currentRole,
+  supabase,
+  onChanged,
+}: {
+  userId: string
+  currentRole: string
+  supabase: ReturnType<typeof createClient>
+  onChanged: () => void
+}) {
+  const [role, setRole] = useState(currentRole)
+  const [saving, setSaving] = useState(false)
+
+  const ROLE_COLORS: Record<string, string> = {
+    admin:         'bg-purple-100 text-purple-700 border-purple-200',
+    sales_manager: 'bg-blue-100 text-blue-700 border-blue-200',
+    applicator:    'bg-green-100 text-green-700 border-green-200',
+    viewer:        'bg-gray-100 text-gray-600 border-gray-200',
+  }
+
+  async function handleChange(newRole: string) {
+    setRole(newRole)
+    setSaving(true)
+    await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
+    setSaving(false)
+    onChanged()
+  }
+
+  return (
+    <select
+      value={role}
+      onChange={e => handleChange(e.target.value)}
+      disabled={saving}
+      className={`text-xs font-medium rounded-full px-2 py-0.5 border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 ${ROLE_COLORS[role] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}
+    >
+      <option value="sales_manager">Sales Manager</option>
+      <option value="applicator">Applicator</option>
+      <option value="viewer">Viewer</option>
+      <option value="admin">Admin</option>
+    </select>
   )
 }
 
