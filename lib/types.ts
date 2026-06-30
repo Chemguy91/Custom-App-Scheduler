@@ -17,11 +17,19 @@ export interface DailyCapacity {
 
 export type AppointmentStatus = 'confirmed' | 'pending_approval' | 'approved' | 'rejected'
 
+export interface ProductEntry {
+  product: string
+  rate: string
+}
+
 export interface Appointment {
   id: string
   date: string        // 'YYYY-MM-DD'
   salesman_id: string
   customer_name: string
+  storage_name: string | null
+  cwt: number | null
+  products: ProductEntry[]
   notes: string | null
   status: AppointmentStatus
   created_at: string
