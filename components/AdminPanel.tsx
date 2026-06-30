@@ -17,6 +17,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
   const [savingCapacity, setSavingCapacity] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'requests' | 'capacity' | 'users' | 'settings'>('requests')
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -183,42 +184,65 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                 ) : (
                   <div className="space-y-3">
                     {capacityRules.map(rule => (
-                      <div key={rule.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-start justify-between gap-4">
-                        <div>
-                          {rule.name && (
-                            <p className="font-medium text-gray-900 mb-1">{rule.name}</p>
-                          )}
-                          <p className="text-sm text-gray-700">
-                            <span className="font-medium">{format(parseISO(rule.start_date), 'MMM d, yyyy')}</span>
-                            {' → '}
-                            <span className="font-medium">{format(parseISO(rule.end_date), 'MMM d, yyyy')}</span>
-                          </p>
-                          <div className="flex items-center gap-2 mt-2 flex-wrap">
-                            <div className="flex gap-1">
-                              {[0,1,2,3,4,5,6].map(d => (
-                                <span
-                                  key={d}
-                                  className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                                    rule.days_of_week.includes(d)
-                                      ? 'bg-blue-100 text-blue-700'
-                                      : 'bg-gray-100 text-gray-400'
-                                  }`}
-                                >
-                                  {DAY_LABELS[d]}
-                                </span>
-                              ))}
-                            </div>
-                            <span className="text-sm font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
-                              {rule.max_applications} application{rule.max_applications !== 1 ? 's' : ''}/day
-                            </span>
+                      <div key={rule.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                        {editingRuleId === rule.id ? (
+                          <div className="p-4">
+                            <p className="text-sm font-semibold text-gray-700 mb-3">Editing rule</p>
+                            <CapacityRuleForm
+                              adminId={profile.id}
+                              supabase={supabase}
+                              existingRule={rule}
+                              onSaved={() => { setEditingRuleId(null); fetchData() }}
+                              onCancel={() => setEditingRuleId(null)}
+                            />
                           </div>
-                        </div>
-                        <button
-                          onClick={() => deleteRule(rule.id)}
-                          className="text-red-400 hover:text-red-600 text-sm shrink-0"
-                        >
-                          Delete
-                        </button>
+                        ) : (
+                          <div className="p-4 flex items-start justify-between gap-4">
+                            <div>
+                              {rule.name && (
+                                <p className="font-medium text-gray-900 mb-1">{rule.name}</p>
+                              )}
+                              <p className="text-sm text-gray-700">
+                                <span className="font-medium">{format(parseISO(rule.start_date), 'MMM d, yyyy')}</span>
+                                {' → '}
+                                <span className="font-medium">{format(parseISO(rule.end_date), 'MMM d, yyyy')}</span>
+                              </p>
+                              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                <div className="flex gap-1">
+                                  {[0,1,2,3,4,5,6].map(d => (
+                                    <span
+                                      key={d}
+                                      className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                                        rule.days_of_week.includes(d)
+                                          ? 'bg-blue-100 text-blue-700'
+                                          : 'bg-gray-100 text-gray-400'
+                                      }`}
+                                    >
+                                      {DAY_LABELS[d]}
+                                    </span>
+                                  ))}
+                                </div>
+                                <span className="text-sm font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                                  {rule.max_applications} application{rule.max_applications !== 1 ? 's' : ''}/day
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <button
+                                onClick={() => setEditingRuleId(rule.id)}
+                                className="text-blue-500 hover:text-blue-700 text-sm font-medium"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => deleteRule(rule.id)}
+                                className="text-red-400 hover:text-red-600 text-sm"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -324,17 +348,22 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
 function CapacityRuleForm({
   adminId,
   supabase,
+  existingRule,
   onSaved,
+  onCancel,
 }: {
   adminId: string
   supabase: ReturnType<typeof createClient>
+  existingRule?: CapacityRule
   onSaved: () => void
+  onCancel?: () => void
 }) {
-  const [name, setName] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [selectedDays, setSelectedDays] = useState<number[]>([...WEEKDAYS]) // Mon-Fri default
-  const [maxApps, setMaxApps] = useState(2)
+  const isEditing = !!existingRule
+  const [name, setName] = useState(existingRule?.name ?? '')
+  const [startDate, setStartDate] = useState(existingRule?.start_date ?? '')
+  const [endDate, setEndDate] = useState(existingRule?.end_date ?? '')
+  const [selectedDays, setSelectedDays] = useState<number[]>(existingRule?.days_of_week ?? [...WEEKDAYS])
+  const [maxApps, setMaxApps] = useState(existingRule?.max_applications ?? 2)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -357,24 +386,46 @@ function CapacityRuleForm({
     }
     setSaving(true)
     setMsg('')
-    const { error } = await supabase.from('capacity_rules').insert({
-      name: name || null,
-      start_date: startDate,
-      end_date: endDate,
-      days_of_week: selectedDays,
-      max_applications: maxApps,
-      created_by: adminId,
-    })
+
+    let error
+    if (isEditing && existingRule) {
+      // Update existing rule — bump created_at so it becomes the newest (highest priority)
+      const result = await supabase
+        .from('capacity_rules')
+        .update({
+          name: name || null,
+          start_date: startDate,
+          end_date: endDate,
+          days_of_week: selectedDays,
+          max_applications: maxApps,
+          created_at: new Date().toISOString(),
+        })
+        .eq('id', existingRule.id)
+      error = result.error
+    } else {
+      const result = await supabase.from('capacity_rules').insert({
+        name: name || null,
+        start_date: startDate,
+        end_date: endDate,
+        days_of_week: selectedDays,
+        max_applications: maxApps,
+        created_by: adminId,
+      })
+      error = result.error
+    }
+
     setSaving(false)
     if (error) {
       setMsg(`Error: ${error.message}`)
     } else {
       setMsg('Rule saved!')
-      setName('')
-      setStartDate('')
-      setEndDate('')
-      setSelectedDays([...WEEKDAYS])
-      setMaxApps(2)
+      if (!isEditing) {
+        setName('')
+        setStartDate('')
+        setEndDate('')
+        setSelectedDays([...WEEKDAYS])
+        setMaxApps(2)
+      }
       onSaved()
       setTimeout(() => setMsg(''), 2000)
     }
@@ -502,13 +553,24 @@ function CapacityRuleForm({
         </p>
       )}
 
-      <button
-        onClick={save}
-        disabled={saving}
-        className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-medium px-5 py-2 rounded-lg text-sm transition-colors"
-      >
-        {saving ? 'Saving…' : 'Save Rule'}
-      </button>
+      <div className="flex gap-2">
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="border border-gray-200 text-gray-600 font-medium px-5 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+        )}
+        <button
+          onClick={save}
+          disabled={saving}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-medium px-5 py-2 rounded-lg text-sm transition-colors"
+        >
+          {saving ? 'Saving…' : isEditing ? 'Update Rule' : 'Save Rule'}
+        </button>
+      </div>
     </div>
   )
 }

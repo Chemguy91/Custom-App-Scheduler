@@ -30,25 +30,30 @@ function resolveCapacity(
   const override = dailyCapacities.find(c => c.date === dateStr)
   if (override) return { max: override.max_trucks, isWeekendBlocked: false }
 
-  // 2. Capacity rules — find matching ones (date in range AND day_of_week matches)
-  const matching = capacityRules
-    .filter(r =>
-      r.start_date <= dateStr &&
-      r.end_date >= dateStr &&
-      r.days_of_week.includes(dayOfWeek)
-    )
+  // 2. Find rules that cover this date (by date range, regardless of day)
+  //    Most recently created rule "owns" the date range.
+  //    If it doesn't include this day → approval required.
+  //    If it does include this day → use its capacity.
+  const coveringRules = capacityRules
+    .filter(r => r.start_date <= dateStr && r.end_date >= dateStr)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-  if (matching.length > 0) {
-    return { max: matching[0].max_applications, isWeekendBlocked: false }
+  if (coveringRules.length > 0) {
+    const owningRule = coveringRules[0]
+    if (owningRule.days_of_week.includes(dayOfWeek)) {
+      return { max: owningRule.max_applications, isWeekendBlocked: false }
+    } else {
+      // Rule owns this period but doesn't include this day → approval required
+      return { max: 0, isWeekendBlocked: true }
+    }
   }
 
-  // 3. Weekend not covered by any rule → requires admin approval (max=0)
+  // 3. No rule covers this date — weekends require approval by default
   if (isWeekend) {
     return { max: 0, isWeekendBlocked: true }
   }
 
-  // 4. Default
+  // 4. Fallback to default
   return { max: defaultMax, isWeekendBlocked: false }
 }
 
