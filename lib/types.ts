@@ -53,10 +53,22 @@ export interface Settings {
   value: string
 }
 
+export interface CapacityRule {
+  id: string
+  name: string | null
+  start_date: string    // 'YYYY-MM-DD'
+  end_date: string      // 'YYYY-MM-DD'
+  days_of_week: number[] // 0=Sun,1=Mon,...,6=Sat
+  max_applications: number
+  created_by: string | null
+  created_at: string
+}
+
 // Grouped by date for calendar display
 export interface DayData {
   date: string
   appointments: Appointment[]
-  maxTrucks: number
+  maxApplications: number
   isFull: boolean
+  isWeekendBlocked: boolean
 }

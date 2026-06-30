@@ -2,28 +2,31 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ApprovalRequest, Profile } from '@/lib/types'
+import { ApprovalRequest, CapacityRule, Profile } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const WEEKDAYS = [1, 2, 3, 4, 5]
 
 export default function AdminPanel({ profile }: { profile: Profile }) {
   const supabase = createClient()
   const [requests, setRequests] = useState<ApprovalRequest[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
   const [defaultCapacity, setDefaultCapacity] = useState('5')
   const [savingCapacity, setSavingCapacity] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'requests' | 'users' | 'settings'>('requests')
-  const [newUser, setNewUser] = useState({ email: '', full_name: '', role: 'salesman' as 'admin' | 'salesman' })
-  const [inviteMsg, setInviteMsg] = useState('')
+  const [activeTab, setActiveTab] = useState<'requests' | 'capacity' | 'users' | 'settings'>('requests')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [reqRes, profRes, settingsRes] = await Promise.all([
+    const [reqRes, profRes, rulesRes, settingsRes] = await Promise.all([
       supabase
         .from('approval_requests')
         .select(`*, profiles!approval_requests_salesman_id_fkey(full_name)`)
         .order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').order('full_name'),
+      supabase.from('capacity_rules').select('*').order('created_at', { ascending: false }),
       supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
     ])
 
@@ -34,6 +37,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
       })) as ApprovalRequest[])
     }
     if (profRes.data) setProfiles(profRes.data as Profile[])
+    if (rulesRes.data) setCapacityRules(rulesRes.data as CapacityRule[])
     if (settingsRes.data) setDefaultCapacity(settingsRes.data.value)
     setLoading(false)
   }, [supabase])
@@ -44,7 +48,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     const supabaseClient = createClient()
 
     if (action === 'approved') {
-      // Create the actual appointment
       const { data: appt } = await supabaseClient
         .from('appointments')
         .insert({
@@ -78,7 +81,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
         })
         .eq('id', req.id)
     }
-
     fetchData()
   }
 
@@ -91,19 +93,10 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     setSavingCapacity(false)
   }
 
-  async function inviteUser() {
-    setInviteMsg('')
-    const { error } = await supabase.auth.admin.createUser({
-      email: newUser.email,
-      user_metadata: { full_name: newUser.full_name, role: newUser.role },
-      email_confirm: true,
-    })
-    if (error) {
-      setInviteMsg(`Error: ${error.message}`)
-    } else {
-      setInviteMsg(`Invited ${newUser.email}. They can now set their password via the login page.`)
-      setNewUser({ email: '', full_name: '', role: 'salesman' })
-    }
+  async function deleteRule(id: string) {
+    if (!confirm('Delete this capacity rule?')) return
+    await supabase.from('capacity_rules').delete().eq('id', id)
+    fetchData()
   }
 
   const pendingRequests = requests.filter(r => r.status === 'pending')
@@ -113,12 +106,12 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     <div className="max-w-4xl mx-auto px-4 py-6">
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900">Admin Panel</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Manage requests, users, and daily capacity</p>
+        <p className="text-sm text-gray-500 mt-0.5">Manage requests, capacity rules, users, and settings</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
-        {(['requests', 'users', 'settings'] as const).map(tab => (
+      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
+        {(['requests', 'capacity', 'users', 'settings'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -128,7 +121,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {tab}
+            {tab === 'capacity' ? 'Daily Capacity' : tab}
             {tab === 'requests' && pendingRequests.length > 0 && (
               <span className="ml-1.5 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
                 {pendingRequests.length}
@@ -151,33 +144,118 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                 </div>
               )}
               {pendingRequests.map(req => (
-                <RequestCard
-                  key={req.id}
-                  req={req}
-                  onAction={handleApprovalAction}
-                />
+                <RequestCard key={req.id} req={req} onAction={handleApprovalAction} />
               ))}
-
               {reviewedRequests.length > 0 && (
                 <>
                   <h3 className="text-sm font-medium text-gray-500 pt-2">Previously reviewed</h3>
                   {reviewedRequests.map(req => (
-                    <RequestCard
-                      key={req.id}
-                      req={req}
-                      onAction={handleApprovalAction}
-                      readonly
-                    />
+                    <RequestCard key={req.id} req={req} onAction={handleApprovalAction} readonly />
                   ))}
                 </>
               )}
             </div>
           )}
 
+          {/* CAPACITY TAB */}
+          {activeTab === 'capacity' && (
+            <div className="space-y-6">
+              {/* Create new rule */}
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="font-semibold text-gray-900 mb-1">Add Capacity Rule</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Set how many applications are allowed per day within a date range. The most recently created rule wins if ranges overlap.
+                </p>
+                <CapacityRuleForm
+                  adminId={profile.id}
+                  supabase={supabase}
+                  onSaved={fetchData}
+                />
+              </div>
+
+              {/* Existing rules */}
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3">Active Rules</h3>
+                {capacityRules.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400 bg-white rounded-xl border border-gray-200">
+                    No rules yet — the default capacity applies to all weekdays.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {capacityRules.map(rule => (
+                      <div key={rule.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-start justify-between gap-4">
+                        <div>
+                          {rule.name && (
+                            <p className="font-medium text-gray-900 mb-1">{rule.name}</p>
+                          )}
+                          <p className="text-sm text-gray-700">
+                            <span className="font-medium">{format(parseISO(rule.start_date), 'MMM d, yyyy')}</span>
+                            {' → '}
+                            <span className="font-medium">{format(parseISO(rule.end_date), 'MMM d, yyyy')}</span>
+                          </p>
+                          <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            <div className="flex gap-1">
+                              {[0,1,2,3,4,5,6].map(d => (
+                                <span
+                                  key={d}
+                                  className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                                    rule.days_of_week.includes(d)
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-gray-100 text-gray-400'
+                                  }`}
+                                >
+                                  {DAY_LABELS[d]}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="text-sm font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                              {rule.max_applications} application{rule.max_applications !== 1 ? 's' : ''}/day
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => deleteRule(rule.id)}
+                          className="text-red-400 hover:text-red-600 text-sm shrink-0"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Default fallback */}
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="font-semibold text-gray-900 mb-1">Default (Fallback) Capacity</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Used on any weekday not covered by a rule above. Weekends not in any rule require admin approval.
+                </p>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={defaultCapacity}
+                    onChange={e => setDefaultCapacity(e.target.value)}
+                    className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-500">applications per day</span>
+                  <button
+                    onClick={saveDefaultCapacity}
+                    disabled={savingCapacity}
+                    className="ml-auto bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    {savingCapacity ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* USERS TAB */}
           {activeTab === 'users' && (
             <div className="space-y-4">
-              {/* Existing users */}
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
@@ -209,16 +287,16 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                 </table>
               </div>
 
-              {/* Invite new user */}
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-900 mb-4">Invite New User</h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  To add users, go to your <strong>Supabase Dashboard → Authentication → Users → Invite user</strong>.
-                  Set their <code className="bg-gray-100 px-1 rounded">full_name</code> and <code className="bg-gray-100 px-1 rounded">role</code> in the metadata field.
+                <h3 className="font-semibold text-gray-900 mb-2">Add New Salesman</h3>
+                <p className="text-sm text-gray-500 mb-3">
+                  Go to <strong>Supabase Dashboard → Authentication → Users → Add user</strong> and invite them by email.
+                  They'll automatically get the salesman role.
                 </p>
                 <div className="bg-gray-50 rounded-lg p-3 text-xs font-mono text-gray-600">
                   {`{ "full_name": "Jane Doe", "role": "salesman" }`}
                 </div>
+                <p className="text-xs text-gray-400 mt-2">Add this as their user metadata when creating the account.</p>
               </div>
             </div>
           )}
@@ -227,34 +305,9 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
           {activeTab === 'settings' && (
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-900 mb-1">Default Daily Truck Capacity</h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  How many applications can be scheduled per day unless overridden for a specific date.
-                </p>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={defaultCapacity}
-                    onChange={e => setDefaultCapacity(e.target.value)}
-                    className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-500">applications per day</span>
-                  <button
-                    onClick={saveDefaultCapacity}
-                    disabled={savingCapacity}
-                    className="ml-auto bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                  >
-                    {savingCapacity ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <h3 className="font-semibold text-gray-900 mb-1">Override Capacity for a Specific Date</h3>
                 <p className="text-sm text-gray-500 mb-4">
-                  Set a different application limit for one date (e.g. holidays or peak days).
+                  Set an exact application count for one specific date — overrides all rules.
                 </p>
                 <CapacityOverride supabase={supabase} adminId={profile.id} />
               </div>
@@ -265,6 +318,202 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     </div>
   )
 }
+
+// ─── Capacity Rule Form ───────────────────────────────────────────────────────
+
+function CapacityRuleForm({
+  adminId,
+  supabase,
+  onSaved,
+}: {
+  adminId: string
+  supabase: ReturnType<typeof createClient>
+  onSaved: () => void
+}) {
+  const [name, setName] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [selectedDays, setSelectedDays] = useState<number[]>([...WEEKDAYS]) // Mon-Fri default
+  const [maxApps, setMaxApps] = useState(2)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  function toggleDay(day: number) {
+    setSelectedDays(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    )
+  }
+
+  function setPreset(preset: 'weekdays' | 'weekends' | 'all') {
+    if (preset === 'weekdays') setSelectedDays([1, 2, 3, 4, 5])
+    if (preset === 'weekends') setSelectedDays([0, 6])
+    if (preset === 'all') setSelectedDays([0, 1, 2, 3, 4, 5, 6])
+  }
+
+  async function save() {
+    if (!startDate || !endDate || selectedDays.length === 0) {
+      setMsg('Please fill in all fields and select at least one day.')
+      return
+    }
+    setSaving(true)
+    setMsg('')
+    const { error } = await supabase.from('capacity_rules').insert({
+      name: name || null,
+      start_date: startDate,
+      end_date: endDate,
+      days_of_week: selectedDays,
+      max_applications: maxApps,
+      created_by: adminId,
+    })
+    setSaving(false)
+    if (error) {
+      setMsg(`Error: ${error.message}`)
+    } else {
+      setMsg('Rule saved!')
+      setName('')
+      setStartDate('')
+      setEndDate('')
+      setSelectedDays([...WEEKDAYS])
+      setMaxApps(2)
+      onSaved()
+      setTimeout(() => setMsg(''), 2000)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Name */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          Rule Name <span className="text-gray-400">(optional)</span>
+        </label>
+        <input
+          type="text"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder='e.g. "Summer 2026"'
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
+      {/* Date range */}
+      <div className="flex gap-3 flex-wrap">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Start Date</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={e => setStartDate(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">End Date</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={e => setEndDate(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+
+      {/* Days of week */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-gray-600">Days of Week</label>
+          <div className="flex gap-2">
+            {(['weekdays', 'weekends', 'all'] as const).map(p => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPreset(p)}
+                className="text-xs text-blue-600 hover:underline capitalize"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {[0,1,2,3,4,5,6].map(d => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => toggleDay(d)}
+              className={`w-10 h-10 rounded-lg text-xs font-medium transition-colors ${
+                selectedDays.includes(d)
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              {DAY_LABELS[d]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Max applications */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-2">
+          Max Applications Per Day
+        </label>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMaxApps(n => Math.max(0, n - 1))}
+              className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-lg flex items-center justify-center"
+            >
+              −
+            </button>
+            <span className="w-8 text-center font-semibold text-gray-900 text-lg">{maxApps}</span>
+            <button
+              type="button"
+              onClick={() => setMaxApps(n => Math.min(50, n + 1))}
+              className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-lg flex items-center justify-center"
+            >
+              +
+            </button>
+          </div>
+          {/* Quick select buttons */}
+          <div className="flex gap-1 ml-2">
+            {[1,2,3,4,5,6,8,10].map(n => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setMaxApps(n)}
+                className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
+                  maxApps === n
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {msg && (
+        <p className={`text-sm ${msg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
+          {msg}
+        </p>
+      )}
+
+      <button
+        onClick={save}
+        disabled={saving}
+        className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-medium px-5 py-2 rounded-lg text-sm transition-colors"
+      >
+        {saving ? 'Saving…' : 'Save Rule'}
+      </button>
+    </div>
+  )
+}
+
+// ─── Request Card ─────────────────────────────────────────────────────────────
 
 function RequestCard({
   req,
@@ -333,6 +582,8 @@ function RequestCard({
   )
 }
 
+// ─── Capacity Override (exact date) ──────────────────────────────────────────
+
 function CapacityOverride({ supabase, adminId }: { supabase: ReturnType<typeof createClient>, adminId: string }) {
   const [date, setDate] = useState('')
   const [max, setMax] = useState('5')
@@ -363,7 +614,7 @@ function CapacityOverride({ supabase, adminId }: { supabase: ReturnType<typeof c
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Max Trucks</label>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Max Applications</label>
         <input
           type="number"
           min={0}

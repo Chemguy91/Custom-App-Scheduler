@@ -9,6 +9,7 @@ interface Props {
   date: string                    // 'YYYY-MM-DD'
   appointments: Appointment[]
   maxTrucks: number
+  isWeekendBlocked?: boolean
   currentProfile: Profile
   editingAppointment?: Appointment | null
   onClose: () => void
@@ -19,13 +20,15 @@ export default function AppointmentModal({
   date,
   appointments,
   maxTrucks,
+  isWeekendBlocked = false,
   currentProfile,
   editingAppointment,
   onClose,
   onSuccess,
 }: Props) {
   const supabase = createClient()
-  const isFull = appointments.filter(a => a.status !== 'rejected').length >= maxTrucks
+  const confirmedAppts = appointments.filter(a => a.status !== 'rejected')
+  const isFull = confirmedAppts.length >= maxTrucks || (isWeekendBlocked && maxTrucks === 0)
   const isAdmin = currentProfile.role === 'admin'
 
   const [customerName, setCustomerName] = useState(editingAppointment?.customer_name ?? '')
@@ -35,7 +38,7 @@ export default function AppointmentModal({
   const [showRequestForm, setShowRequestForm] = useState(false)
 
   const displayDate = format(parseISO(date), 'EEEE, MMMM d, yyyy')
-  const confirmedCount = appointments.filter(a => a.status !== 'rejected').length
+  const confirmedCount = confirmedAppts.length
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -100,7 +103,9 @@ export default function AppointmentModal({
             <div>
               <h2 className="font-semibold text-gray-900 text-lg">{displayDate}</h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                {confirmedCount} of {maxTrucks} applications scheduled
+                {isWeekendBlocked && maxTrucks === 0
+                  ? 'Weekend — admin approval required'
+                  : `${confirmedCount} of ${maxTrucks} applications scheduled`}
               </p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 ml-4">
@@ -169,8 +174,14 @@ export default function AppointmentModal({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
-              <p className="font-semibold text-red-800">This day is fully booked</p>
-              <p className="text-sm text-red-600 mt-1">All {maxTrucks} application slots are taken.</p>
+              <p className="font-semibold text-red-800">
+                {isWeekendBlocked ? 'Weekend — not open for scheduling' : 'This day is fully booked'}
+              </p>
+              <p className="text-sm text-red-600 mt-1">
+                {isWeekendBlocked
+                  ? 'Weekends require admin approval.'
+                  : `All ${maxTrucks} application slots are taken.`}
+              </p>
               <div className="flex gap-2 mt-4">
                 <button
                   onClick={onClose}
