@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'salesman'
+export type Role = 'admin' | 'sales_manager' | 'applicator' | 'viewer'
 
 export interface Profile {
   id: string
@@ -59,6 +59,35 @@ export interface ApprovalRequest {
 export interface Settings {
   key: string
   value: string
+}
+
+export interface Truck {
+  id: string
+  name: string
+  applicator_id: string | null
+  applicator_name?: string
+  active_from: string | null   // 'YYYY-MM-DD'
+  active_to: string | null     // 'YYYY-MM-DD'
+  created_by: string | null
+  created_at: string
+}
+
+export type DayOffStatus = 'pending' | 'approved' | 'rejected'
+
+export interface DayOff {
+  id: string
+  applicator_id: string
+  truck_id: string | null
+  date: string               // 'YYYY-MM-DD'
+  reason: string | null
+  status: DayOffStatus
+  admin_note: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
+  // joined
+  applicator_name?: string
+  truck_name?: string
 }
 
 export interface CapacityRule {

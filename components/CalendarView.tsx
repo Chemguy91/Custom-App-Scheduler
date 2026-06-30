@@ -6,8 +6,9 @@ import {
   format, isSameMonth, isToday, parseISO, addMonths, subMonths, getDay,
 } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { Appointment, CapacityRule, DailyCapacity, Profile } from '@/lib/types'
+import { Appointment, CapacityRule, DailyCapacity, DayOff, Profile, Truck } from '@/lib/types'
 import AppointmentModal from './AppointmentModal'
+import DayOffModal from './DayOffModal'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -21,39 +22,51 @@ function resolveCapacity(
   dateStr: string,
   dailyCapacities: DailyCapacity[],
   capacityRules: CapacityRule[],
+  trucks: Truck[],
+  daysOff: DayOff[],
   defaultMax: number,
 ): DayCapacityResult {
-  const dayOfWeek = getDay(date) // 0=Sun ... 6=Sat
+  const dayOfWeek = getDay(date)
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
 
-  // 1. Exact date override (highest priority)
+  // 1. Exact date override
   const override = dailyCapacities.find(c => c.date === dateStr)
   if (override) return { max: override.max_trucks, isWeekendBlocked: false }
 
-  // 2. Find rules that cover this date (by date range, regardless of day)
-  //    Most recently created rule "owns" the date range.
-  //    If it doesn't include this day → approval required.
-  //    If it does include this day → use its capacity.
+  // 2. Truck-based capacity
+  //    Active trucks = trucks whose availability window covers this date
+  const activeTrucks = trucks.filter(t =>
+    (!t.active_from || t.active_from <= dateStr) &&
+    (!t.active_to   || t.active_to   >= dateStr)
+  ).length
+
+  const approvedDaysOff = daysOff.filter(d => d.date === dateStr && d.status === 'approved').length
+  const truckCapacity = Math.max(0, activeTrucks - approvedDaysOff)
+
+  // 3. Capacity rules (most recently created owns the date range)
   const coveringRules = capacityRules
     .filter(r => r.start_date <= dateStr && r.end_date >= dateStr)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
   if (coveringRules.length > 0) {
     const owningRule = coveringRules[0]
-    if (owningRule.days_of_week.includes(dayOfWeek)) {
-      return { max: owningRule.max_applications, isWeekendBlocked: false }
-    } else {
-      // Rule owns this period but doesn't include this day → approval required
+    if (!owningRule.days_of_week.includes(dayOfWeek)) {
       return { max: 0, isWeekendBlocked: true }
     }
+    // Use min of rule and truck capacity (if trucks configured)
+    const ruleMax = owningRule.max_applications
+    const effectiveMax = activeTrucks > 0 ? Math.min(ruleMax, truckCapacity) : ruleMax
+    return { max: effectiveMax, isWeekendBlocked: false }
   }
 
-  // 3. No rule covers this date — weekends require approval by default
-  if (isWeekend) {
-    return { max: 0, isWeekendBlocked: true }
+  // 4. No rule — use trucks if configured
+  if (activeTrucks > 0) {
+    if (truckCapacity === 0 && isWeekend) return { max: 0, isWeekendBlocked: true }
+    return { max: truckCapacity, isWeekendBlocked: false }
   }
 
-  // 4. Fallback to default
+  // 5. Pure fallback
+  if (isWeekend) return { max: 0, isWeekendBlocked: true }
   return { max: defaultMax, isWeekendBlocked: false }
 }
 
@@ -62,88 +75,105 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [capacities, setCapacities] = useState<DailyCapacity[]>([])
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
+  const [trucks, setTrucks] = useState<Truck[]>([])
+  const [daysOff, setDaysOff] = useState<DayOff[]>([])
   const [defaultMax, setDefaultMax] = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
+  const isViewer       = profile.role === 'viewer'
+  const isApplicator   = profile.role === 'applicator'
+  const isSalesManager = profile.role === 'sales_manager'
+  const isAdmin        = profile.role === 'admin'
+  const canSchedule    = isSalesManager || isAdmin
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
-    const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd')
+    const monthEnd   = format(endOfMonth(currentMonth),   'yyyy-MM-dd')
 
-    const [apptRes, capRes, rulesRes, settingsRes] = await Promise.all([
-      supabase
-        .from('appointments_with_details')
-        .select('*')
-        .gte('date', monthStart)
-        .lte('date', monthEnd)
-        .neq('status', 'rejected'),
-      supabase
-        .from('daily_capacity')
-        .select('*')
-        .gte('date', monthStart)
-        .lte('date', monthEnd),
-      supabase
-        .from('capacity_rules')
-        .select('*'),
-      supabase
-        .from('settings')
-        .select('value')
-        .eq('key', 'default_daily_capacity')
-        .single(),
-    ])
+    const queries: Promise<unknown>[] = [
+      supabase.from('appointments_with_details').select('*').gte('date', monthStart).lte('date', monthEnd).neq('status', 'rejected'),
+      supabase.from('daily_capacity').select('*').gte('date', monthStart).lte('date', monthEnd),
+      supabase.from('capacity_rules').select('*'),
+      supabase.from('trucks_with_details').select('*'),
+      supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
+    ]
 
-    if (apptRes.data) setAppointments(apptRes.data as Appointment[])
-    if (capRes.data) setCapacities(capRes.data as DailyCapacity[])
-    if (rulesRes.data) setCapacityRules(rulesRes.data as CapacityRule[])
-    if (settingsRes.data) setDefaultMax(parseInt(settingsRes.data.value) || 5)
+    // Applicators only fetch their own days off; others fetch all for the month
+    if (isApplicator) {
+      queries.push(supabase.from('days_off').select('*').eq('applicator_id', profile.id))
+    } else {
+      queries.push(supabase.from('days_off').select('*').gte('date', monthStart).lte('date', monthEnd).eq('status', 'approved'))
+    }
+
+    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, daysOffRes] =
+      await Promise.all(queries) as Awaited<ReturnType<typeof supabase.from>>[]
+
+    if ((apptRes as { data: unknown[] | null }).data)    setAppointments((apptRes as { data: Appointment[] }).data!)
+    if ((capRes as { data: unknown[] | null }).data)     setCapacities((capRes as { data: DailyCapacity[] }).data!)
+    if ((rulesRes as { data: unknown[] | null }).data)   setCapacityRules((rulesRes as { data: CapacityRule[] }).data!)
+    if ((trucksRes as { data: unknown[] | null }).data)  setTrucks((trucksRes as { data: Truck[] }).data!)
+    if ((settingsRes as { data: { value: string } | null }).data) setDefaultMax(parseInt((settingsRes as { data: { value: string } }).data!.value) || 5)
+    if ((daysOffRes as { data: unknown[] | null }).data) setDaysOff((daysOffRes as { data: DayOff[] }).data!)
+
     setLoading(false)
-  }, [currentMonth, supabase])
+  }, [currentMonth, supabase, isApplicator, profile.id])
 
   useEffect(() => { fetchData() }, [fetchData])
 
   const monthStart = startOfMonth(currentMonth)
-  const monthEnd = endOfMonth(currentMonth)
-  const gridStart = startOfWeek(monthStart)
-  const gridEnd = endOfWeek(monthEnd)
-  const days = eachDayOfInterval({ start: gridStart, end: gridEnd })
+  const monthEnd   = endOfMonth(currentMonth)
+  const gridStart  = startOfWeek(monthStart)
+  const gridEnd    = endOfWeek(monthEnd)
+  const days       = eachDayOfInterval({ start: gridStart, end: gridEnd })
 
   function getAppointments(dateStr: string) {
     return appointments.filter(a => a.date === dateStr)
   }
 
+  function getMyDayOff(dateStr: string): DayOff | null {
+    return daysOff.find(d => d.date === dateStr && d.applicator_id === profile.id) ?? null
+  }
+
   const selectedDateAppointments = selectedDate ? getAppointments(selectedDate) : []
   const selectedDayCapacity = selectedDate
-    ? resolveCapacity(parseISO(selectedDate), selectedDate, capacities, capacityRules, defaultMax)
+    ? resolveCapacity(parseISO(selectedDate), selectedDate, capacities, capacityRules, trucks, daysOff, defaultMax)
     : { max: defaultMax, isWeekendBlocked: false }
+
+  function handleDayClick(dateStr: string) {
+    if (isViewer) return
+    setSelectedDate(dateStr)
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
+      {/* Role banner for non-schedulers */}
+      {isViewer && (
+        <div className="mb-4 bg-gray-100 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-500 text-center">
+          You have view-only access to this calendar.
+        </div>
+      )}
+      {isApplicator && (
+        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 text-sm text-blue-700 text-center">
+          Click any day to request a day off.
+        </div>
+      )}
+
       {/* Month navigation */}
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-gray-900">
-          {format(currentMonth, 'MMMM yyyy')}
-        </h2>
+        <h2 className="text-xl font-bold text-gray-900">{format(currentMonth, 'MMMM yyyy')}</h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCurrentMonth(m => subMonths(m, 1))}
-            className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={() => setCurrentMonth(m => subMonths(m, 1))} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
             <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <button
-            onClick={() => setCurrentMonth(new Date())}
-            className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
-          >
+          <button onClick={() => setCurrentMonth(new Date())} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600">
             Today
           </button>
-          <button
-            onClick={() => setCurrentMonth(m => addMonths(m, 1))}
-            className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={() => setCurrentMonth(m => addMonths(m, 1))} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
             <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
@@ -164,63 +194,80 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       ) : (
         <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden border border-gray-200">
           {days.map(day => {
-            const dateStr = format(day, 'yyyy-MM-dd')
-            const inMonth = isSameMonth(day, currentMonth)
-            const today = isToday(day)
+            const dateStr  = format(day, 'yyyy-MM-dd')
+            const inMonth  = isSameMonth(day, currentMonth)
+            const today    = isToday(day)
             const dayAppts = getAppointments(dateStr)
-            const { max, isWeekendBlocked } = resolveCapacity(day, dateStr, capacities, capacityRules, defaultMax)
-            const count = dayAppts.length
-            const full = count >= max
-            const blocked = isWeekendBlocked && count === 0
+            const myDayOff = getMyDayOff(dateStr)
+            const { max, isWeekendBlocked } = resolveCapacity(day, dateStr, capacities, capacityRules, trucks, daysOff, defaultMax)
+            const count    = dayAppts.length
+            const full     = count >= max
+            const blocked  = isWeekendBlocked && count === 0
 
             return (
               <button
                 key={dateStr}
-                onClick={() => setSelectedDate(dateStr)}
+                onClick={() => handleDayClick(dateStr)}
+                disabled={isViewer}
                 className={`
-                  bg-white min-h-[80px] p-2 text-left hover:bg-blue-50 transition-colors
+                  bg-white min-h-[80px] p-2 text-left transition-colors
                   ${!inMonth ? 'opacity-40' : ''}
                   ${today ? 'ring-2 ring-inset ring-blue-500' : ''}
                   ${blocked ? 'bg-gray-50' : ''}
+                  ${!isViewer ? 'hover:bg-blue-50' : 'cursor-default'}
                 `}
               >
-                <span className={`
-                  text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full
-                  ${today ? 'bg-blue-600 text-white' : 'text-gray-900'}
-                `}>
+                <span className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
+                  today ? 'bg-blue-600 text-white' : 'text-gray-900'
+                }`}>
                   {format(day, 'd')}
                 </span>
 
-                {/* Weekend blocked indicator */}
-                {blocked && inMonth && (
+                {/* Applicator: show their day off status */}
+                {isApplicator && myDayOff && inMonth && (
                   <div className="mt-1">
-                    <span className="text-xs text-gray-400 italic">Approval req.</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                      myDayOff.status === 'approved' ? 'bg-green-100 text-green-700' :
+                      myDayOff.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {myDayOff.status === 'approved' ? 'Off ✓' :
+                       myDayOff.status === 'rejected' ? 'Denied' : 'Off?'}
+                    </span>
                   </div>
                 )}
 
-                {/* Capacity pill */}
-                {!blocked && max > 0 && inMonth && (
+                {/* Capacity pill (non-applicator) */}
+                {!isApplicator && !blocked && max > 0 && inMonth && (
                   <div className="mt-1">
-                    <span className={`
-                      text-xs px-1.5 py-0.5 rounded-full font-medium
-                      ${full ? 'bg-red-100 text-red-700' : count > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}
-                    `}>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                      full ? 'bg-red-100 text-red-700' : count > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+                    }`}>
                       {count}/{max}
                     </span>
                   </div>
                 )}
 
-                {/* Appointment names */}
-                <div className="mt-1 space-y-0.5">
-                  {dayAppts.slice(0, 2).map(a => (
-                    <div key={a.id} className="text-xs truncate text-gray-600 bg-gray-100 rounded px-1 py-0.5">
-                      {a.customer_name}
-                    </div>
-                  ))}
-                  {dayAppts.length > 2 && (
-                    <div className="text-xs text-gray-400">+{dayAppts.length - 2} more</div>
-                  )}
-                </div>
+                {/* Weekend blocked */}
+                {blocked && inMonth && !isApplicator && (
+                  <div className="mt-1">
+                    <span className="text-xs text-gray-400 italic">Approval req.</span>
+                  </div>
+                )}
+
+                {/* Appointment names (non-applicator) */}
+                {!isApplicator && (
+                  <div className="mt-1 space-y-0.5">
+                    {dayAppts.slice(0, 2).map(a => (
+                      <div key={a.id} className="text-xs truncate text-gray-600 bg-gray-100 rounded px-1 py-0.5">
+                        {a.customer_name}
+                      </div>
+                    ))}
+                    {dayAppts.length > 2 && (
+                      <div className="text-xs text-gray-400">+{dayAppts.length - 2} more</div>
+                    )}
+                  </div>
+                )}
               </button>
             )
           })}
@@ -229,22 +276,35 @@ export default function CalendarView({ profile }: { profile: Profile }) {
 
       {/* Legend */}
       <div className="flex items-center gap-4 mt-4 text-xs text-gray-500 flex-wrap">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300 inline-block" />
-          Available
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />
-          Full
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-gray-100 border border-gray-300 inline-block" />
-          Approval required
-        </span>
+        {!isApplicator && (
+          <>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300 inline-block" />Available</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Full</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 border border-gray-300 inline-block" />Approval required</span>
+          </>
+        )}
+        {isApplicator && (
+          <>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300 inline-block" />Pending</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-100 border border-green-300 inline-block" />Approved off</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Denied</span>
+          </>
+        )}
       </div>
 
-      {/* Modal */}
-      {selectedDate && (
+      {/* Modals */}
+      {selectedDate && isApplicator && (
+        <DayOffModal
+          date={selectedDate}
+          profile={profile}
+          existingRequest={getMyDayOff(selectedDate)}
+          trucks={trucks}
+          onClose={() => setSelectedDate(null)}
+          onSuccess={() => { setSelectedDate(null); fetchData() }}
+        />
+      )}
+
+      {selectedDate && canSchedule && (
         <AppointmentModal
           date={selectedDate}
           appointments={selectedDateAppointments}
@@ -252,10 +312,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
           isWeekendBlocked={selectedDayCapacity.isWeekendBlocked}
           currentProfile={profile}
           onClose={() => setSelectedDate(null)}
-          onSuccess={() => {
-            setSelectedDate(null)
-            fetchData()
-          }}
+          onSuccess={() => { setSelectedDate(null); fetchData() }}
         />
       )}
     </div>

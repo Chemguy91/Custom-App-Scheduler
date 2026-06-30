@@ -5,6 +5,13 @@ import { Profile } from '@/lib/types'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Admin',
+  sales_manager: 'Sales Manager',
+  applicator: 'Applicator',
+  viewer: 'Viewer',
+}
+
 export default function Navbar({ profile }: { profile: Profile }) {
   const router = useRouter()
   const supabase = createClient()
@@ -43,7 +50,7 @@ export default function Navbar({ profile }: { profile: Profile }) {
         <div className="flex items-center gap-3">
           <div className="text-right">
             <p className="text-sm font-medium text-gray-900">{profile.full_name}</p>
-            <p className="text-xs text-gray-500 capitalize">{profile.role}</p>
+            <p className="text-xs text-gray-500">{ROLE_LABELS[profile.role] ?? profile.role}</p>
           </div>
           <button
             onClick={signOut}
