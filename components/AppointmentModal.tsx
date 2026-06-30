@@ -100,7 +100,7 @@ export default function AppointmentModal({
             <div>
               <h2 className="font-semibold text-gray-900 text-lg">{displayDate}</h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                {confirmedCount} of {maxTrucks} trucks scheduled
+                {confirmedCount} of {maxTrucks} applications scheduled
               </p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 ml-4">
@@ -170,7 +170,7 @@ export default function AppointmentModal({
                   d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <p className="font-semibold text-red-800">This day is fully booked</p>
-              <p className="text-sm text-red-600 mt-1">All {maxTrucks} truck slots are taken.</p>
+              <p className="text-sm text-red-600 mt-1">All {maxTrucks} application slots are taken.</p>
               <div className="flex gap-2 mt-4">
                 <button
                   onClick={onClose}

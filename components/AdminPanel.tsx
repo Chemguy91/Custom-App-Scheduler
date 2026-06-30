@@ -240,7 +240,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                     onChange={e => setDefaultCapacity(e.target.value)}
                     className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <span className="text-sm text-gray-500">trucks per day</span>
+                  <span className="text-sm text-gray-500">applications per day</span>
                   <button
                     onClick={saveDefaultCapacity}
                     disabled={savingCapacity}
@@ -254,7 +254,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
               <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <h3 className="font-semibold text-gray-900 mb-1">Override Capacity for a Specific Date</h3>
                 <p className="text-sm text-gray-500 mb-4">
-                  Set a different truck limit for one date (e.g. holidays or peak days).
+                  Set a different application limit for one date (e.g. holidays or peak days).
                 </p>
                 <CapacityOverride supabase={supabase} adminId={profile.id} />
               </div>
@@ -347,7 +347,7 @@ function CapacityOverride({ supabase, adminId }: { supabase: ReturnType<typeof c
       .from('daily_capacity')
       .upsert({ date, max_trucks: parseInt(max), set_by: adminId }, { onConflict: 'date' })
     setSaving(false)
-    setMsg(error ? `Error: ${error.message}` : `Saved: ${date} → ${max} trucks`)
+    setMsg(error ? `Error: ${error.message}` : `Saved: ${date} → ${max} applications`)
     if (!error) { setDate(''); setMax('5') }
   }
 
