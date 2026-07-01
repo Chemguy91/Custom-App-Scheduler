@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ApprovalRequest, BlackoutDay, CapacityRule, DayOff, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
@@ -21,6 +21,15 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'requests' | 'daysoff' | 'trucks' | 'capacity' | 'users' | 'settings'>('requests')
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
+  const [newAlert, setNewAlert]           = useState<{ count: number; name: string } | null>(null)
+  const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Ask for browser notification permission once
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -59,6 +68,40 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
   }, [supabase])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Supabase Realtime — notify admin instantly when a salesman submits a request
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin_new_requests')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'approval_requests' },
+        (payload) => {
+          const req = payload.new as { status: string; customer_name: string; job_type: string }
+          if (req.status !== 'pending') return
+
+          const label = req.customer_name ?? 'Unknown customer'
+          const isDisinfect = req.job_type === 'stg_disinfect'
+          const body = isDisinfect ? `${label} · Stg Disinfect` : label
+
+          // OS-level browser notification
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification('New Approval Request', { body, icon: '/favicon.ico' })
+          }
+
+          // In-app alert toast
+          setNewAlert(prev => ({ count: (prev?.count ?? 0) + 1, name: label }))
+          if (alertTimerRef.current) clearTimeout(alertTimerRef.current)
+          alertTimerRef.current = setTimeout(() => setNewAlert(null), 10_000)
+
+          // Pull fresh data so the badge + list update immediately
+          fetchData()
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, fetchData])
 
   async function handleApprovalAction(
     req: ApprovalRequest,
@@ -493,6 +536,30 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
             </div>
           )}
         </>
+      )}
+
+      {/* ── New-request toast ── */}
+      {newAlert && (
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 bg-gray-900 text-white rounded-xl px-4 py-3 shadow-2xl">
+          <div>
+            <p className="text-sm font-semibold leading-tight">
+              {newAlert.count === 1 ? 'New approval request' : `${newAlert.count} new requests`}
+            </p>
+            <p className="text-xs text-gray-300 mt-0.5 truncate max-w-[200px]">{newAlert.name}</p>
+          </div>
+          <button
+            onClick={() => { setActiveTab('requests'); setNewAlert(null) }}
+            className="shrink-0 bg-white text-gray-900 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            View
+          </button>
+          <button
+            onClick={() => setNewAlert(null)}
+            className="shrink-0 text-gray-400 hover:text-white text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
       )}
     </div>
   )
