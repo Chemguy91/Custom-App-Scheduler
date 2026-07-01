@@ -61,12 +61,12 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     req: ApprovalRequest,
     action: 'approved' | 'rejected',
     note?: string,
-    deductSlot?: boolean,
+    deductSlots?: number,
   ) {
     const supabaseClient = createClient()
 
     if (action === 'approved') {
-      const { data: appt } = await supabaseClient
+      const { data: appt, error: apptError } = await supabaseClient
         .from('appointments')
         .insert({
           date:             req.date,
@@ -76,10 +76,15 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
           storage_name:     req.storage_name ?? null,
           storage_capacity: req.storage_capacity ?? null,
           notes:            req.notes,
+          products:         [],
           status:           'approved',
         })
         .select()
         .single()
+
+      if (apptError) {
+        console.error('Failed to create appointment on approval:', apptError)
+      }
 
       await supabaseClient
         .from('approval_requests')
@@ -92,9 +97,9 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
         })
         .eq('id', req.id)
 
-      // Deduct a slot from that day's capacity if requested
-      if (deductSlot) {
-        await deductDailySlot(supabaseClient, req.date, profile.id)
+      // Deduct N slots from that day's capacity
+      if (deductSlots && deductSlots > 0) {
+        await deductDailySlots(supabaseClient, req.date, profile.id, deductSlots)
       }
     } else {
       await supabaseClient
@@ -110,10 +115,11 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     fetchData()
   }
 
-  async function deductDailySlot(
+  async function deductDailySlots(
     supabaseClient: ReturnType<typeof createClient>,
     date: string,
     adminId: string,
+    count: number,
   ) {
     // 1. Check for an existing exact-date override
     const { data: existing } = await supabaseClient
@@ -125,7 +131,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     if (existing) {
       await supabaseClient
         .from('daily_capacity')
-        .update({ max_trucks: Math.max(0, existing.max_trucks - 1), set_by: adminId })
+        .update({ max_trucks: Math.max(0, existing.max_trucks - count), set_by: adminId })
         .eq('date', date)
       return
     }
@@ -149,10 +155,10 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
       currentMax = covering[0].max_applications
     }
 
-    // 3. Insert override with currentMax - 1
+    // 3. Insert override with currentMax - count
     await supabaseClient.from('daily_capacity').insert({
       date,
-      max_trucks: Math.max(0, currentMax - 1),
+      max_trucks: Math.max(0, currentMax - count),
       set_by: adminId,
     })
   }
@@ -1176,11 +1182,11 @@ function RequestCard({
   readonly = false,
 }: {
   req: ApprovalRequest
-  onAction: (req: ApprovalRequest, action: 'approved' | 'rejected', note?: string, deductSlot?: boolean) => void
+  onAction: (req: ApprovalRequest, action: 'approved' | 'rejected', note?: string, deductSlots?: number) => void
   readonly?: boolean
 }) {
-  const [note, setNote]           = useState('')
-  const [deductSlot, setDeductSlot] = useState(false)
+  const [note, setNote]             = useState('')
+  const [deductSlots, setDeductSlots] = useState(0)
   const isDisinfect = req.job_type === 'stg_disinfect'
 
   return (
@@ -1227,20 +1233,30 @@ function RequestCard({
             className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
-          {/* Slot deduction — shown for disinfect and optionally for regular overages */}
-          <label className="flex items-center gap-2 cursor-pointer select-none py-1">
-            <input
-              type="checkbox"
-              checked={deductSlot}
-              onChange={e => setDeductSlot(e.target.checked)}
-              className="w-4 h-4 rounded text-orange-500 border-gray-300 focus:ring-orange-400"
-            />
+          {/* Slot deduction — number of truck slots this job will occupy */}
+          <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
             <span className="text-sm text-gray-700">
-              Deduct 1 truck slot from{' '}
+              Deduct truck slots from{' '}
               <span className="font-medium">{format(parseISO(req.date), 'MMM d')}</span>
-              {isDisinfect ? ' (disinfect uses a truck)' : ''}
             </span>
-          </label>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDeductSlots(n => Math.max(0, n - 1))}
+                className="w-7 h-7 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 font-bold flex items-center justify-center text-lg leading-none"
+              >
+                −
+              </button>
+              <span className="w-5 text-center font-semibold text-gray-900 text-sm">{deductSlots}</span>
+              <button
+                type="button"
+                onClick={() => setDeductSlots(n => Math.min(10, n + 1))}
+                className="w-7 h-7 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 font-bold flex items-center justify-center text-lg leading-none"
+              >
+                +
+              </button>
+            </div>
+          </div>
 
           <div className="flex gap-2">
             <button
@@ -1250,7 +1266,7 @@ function RequestCard({
               Decline
             </button>
             <button
-              onClick={() => onAction(req, 'approved', note, deductSlot)}
+              onClick={() => onAction(req, 'approved', note, deductSlots)}
               className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors"
             >
               {isDisinfect ? 'Approve & Schedule' : 'Approve'}
