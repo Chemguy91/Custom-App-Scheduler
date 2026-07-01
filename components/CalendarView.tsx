@@ -13,6 +13,119 @@ import DayOffModal from './DayOffModal'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+// ─── Applicator Job Detail Modal ──────────────────────────────────────────────
+
+function ApptDetailModal({ appt, onClose }: { appt: Appointment; onClose: () => void }) {
+  const isDisinfect = appt.job_type === 'stg_disinfect'
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">{appt.customer_name}</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {format(parseISO(appt.date), 'EEEE, MMMM d, yyyy')}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none mt-0.5"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Details grid */}
+        <div className="space-y-3 text-sm">
+          {/* Job type */}
+          <Row label="Job type">
+            <span className={`px-2 py-0.5 rounded text-xs font-medium ${isDisinfect ? 'chip-disinfect' : 'bg-blue-50 text-blue-700'}`}>
+              {isDisinfect ? 'Stg Disinfect' : 'Application'}
+            </span>
+          </Row>
+
+          {/* Truck */}
+          {appt.truck_name && (
+            <Row label="Truck">{appt.truck_name}</Row>
+          )}
+
+          {/* Storage */}
+          {appt.storage_name && (
+            <Row label="Storage">{appt.storage_name}</Row>
+          )}
+
+          {/* Capacity / CWT */}
+          {appt.storage_capacity != null && (
+            <Row label="Capacity">{appt.storage_capacity.toLocaleString()} bu</Row>
+          )}
+          {appt.cwt != null && (
+            <Row label="CWT">{appt.cwt}</Row>
+          )}
+
+          {/* Products */}
+          {!isDisinfect && appt.products?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Products</p>
+              <div className="space-y-1">
+                {appt.products.map(p => (
+                  <div key={p.product} className="flex justify-between bg-gray-50 dark:bg-gray-800 rounded px-3 py-1.5">
+                    <span className="font-medium text-gray-800 dark:text-gray-200">{p.product}</span>
+                    <span className="text-gray-500 dark:text-gray-400">{p.rate}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Salesman */}
+          {appt.salesman_name && (
+            <Row label="Salesman">{appt.salesman_name}</Row>
+          )}
+
+          {/* Slots */}
+          {(appt.slot_count ?? 1) > 1 && (
+            <Row label="Truck slots">{appt.slot_count}</Row>
+          )}
+
+          {/* Notes */}
+          {appt.notes && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Notes</p>
+              <p className="text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded px-3 py-2 whitespace-pre-wrap">
+                {appt.notes}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full mt-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium py-2 rounded-xl text-sm transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex justify-between items-center">
+      <span className="text-gray-500 dark:text-gray-400 font-medium">{label}</span>
+      <span className="text-gray-900 dark:text-white text-right">{children}</span>
+    </div>
+  )
+}
+
 /** Returns the CSS class name that colours an appointment chip by its product. */
 function getProductChipClass(a: { job_type: string; products?: { product: string; rate: string }[] }): string {
   if (a.job_type === 'stg_disinfect') return 'chip-disinfect'
@@ -49,6 +162,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [showMyOnly, setShowMyOnly]               = useState(false)
   const [applicatorViewAll, setApplicatorViewAll] = useState(false)
   const [viewerSalesmanFilter, setViewerSalesmanFilter] = useState<string | null>(null)
+  const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
 
   // Drag & drop state
   const [draggedAppt, setDraggedAppt]   = useState<Appointment | null>(null)
@@ -538,9 +652,10 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                           draggable={draggable}
                           onDragStart={draggable ? e => handleDragStart(e, a) : undefined}
                           onDragEnd={draggable ? handleDragEnd : undefined}
-                          onClick={e => e.stopPropagation()}
+                          onClick={e => { e.stopPropagation(); if (isApplicator) setDetailAppt(a) }}
                           className={`text-xs truncate rounded px-1 py-0.5 select-none ${chipClass}
                             ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}
+                            ${isApplicator ? 'cursor-pointer hover:opacity-80' : ''}
                             ${draggedAppt?.id === a.id ? 'opacity-40' : ''}
                           `}
                         >
@@ -609,6 +724,10 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       </div>
 
       {/* Modals */}
+      {detailAppt && (
+        <ApptDetailModal appt={detailAppt} onClose={() => setDetailAppt(null)} />
+      )}
+
       {selectedDate && isApplicator && (
         <DayOffModal
           date={selectedDate}
