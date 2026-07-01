@@ -7,9 +7,8 @@ import {
   parseISO, addMonths, subMonths, addWeeks, subWeeks, getDay,
 } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { Appointment, BlackoutDay, CapacityRule, DailyCapacity, DayOff, Profile, Truck } from '@/lib/types'
+import { Appointment, BlackoutDay, CapacityRule, DailyCapacity, Profile, Truck } from '@/lib/types'
 import AppointmentModal from './AppointmentModal'
-import DayOffModal from './DayOffModal'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -154,7 +153,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [capacities, setCapacities]     = useState<DailyCapacity[]>([])
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
   const [trucks, setTrucks]             = useState<Truck[]>([])
-  const [daysOff, setDaysOff]           = useState<DayOff[]>([])
   const [blackoutDays, setBlackoutDays] = useState<BlackoutDay[]>([])
   const [defaultMax, setDefaultMax]     = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
@@ -200,27 +198,18 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
     const monthEnd   = format(endOfMonth(currentMonth),   'yyyy-MM-dd')
 
-    const queries: Promise<unknown>[] = [
-      supabase.from('appointments_with_details').select('*').gte('date', monthStart).lte('date', monthEnd).neq('status', 'rejected'),
-      supabase.from('daily_capacity').select('*').gte('date', monthStart).lte('date', monthEnd),
-      supabase.from('capacity_rules').select('*'),
-      supabase.from('trucks_with_details').select('*'),
-      supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
-      supabase.from('blackout_days').select('*').gte('date', monthStart).lte('date', monthEnd),
-    ]
-
-    if (isApplicator) {
-      queries.push(supabase.from('days_off').select('*').eq('applicator_id', profile.id))
-    } else {
-      queries.push(supabase.from('days_off').select('*').gte('date', monthStart).lte('date', monthEnd).eq('status', 'approved'))
-    }
-
-    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes, daysOffRes] =
-      await Promise.all(queries) as Awaited<ReturnType<typeof supabase.from>>[]
+    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes] =
+      await Promise.all([
+        supabase.from('appointments_with_details').select('*').gte('date', monthStart).lte('date', monthEnd).neq('status', 'rejected'),
+        supabase.from('daily_capacity').select('*').gte('date', monthStart).lte('date', monthEnd),
+        supabase.from('capacity_rules').select('*'),
+        supabase.from('trucks_with_details').select('*'),
+        supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
+        supabase.from('blackout_days').select('*').gte('date', monthStart).lte('date', monthEnd),
+      ]) as Awaited<ReturnType<typeof supabase.from>>[]
 
     if ((apptRes as { data: unknown[] | null }).data) {
       const appts = (apptRes as { data: Appointment[] }).data!
-      // Viewers never see the "Test" salesman's jobs
       setAppointments(
         profile.role === 'viewer'
           ? appts.filter(a => (a.salesman_name ?? '').toLowerCase() !== 'test')
@@ -232,23 +221,11 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     if ((trucksRes as { data: unknown[] | null }).data)    setTrucks((trucksRes as { data: Truck[] }).data!)
     if ((settingsRes as { data: { value: string } | null }).data) setDefaultMax(parseInt((settingsRes as { data: { value: string } }).data!.value) || 5)
     if ((blackoutRes as { data: unknown[] | null }).data)  setBlackoutDays((blackoutRes as { data: BlackoutDay[] }).data!)
-    if ((daysOffRes as { data: unknown[] | null }).data)   setDaysOff((daysOffRes as { data: DayOff[] }).data!)
 
     setLoading(false)
-  }, [currentMonth, supabase, isApplicator, profile.id])
+  }, [currentMonth, supabase, profile.id])
 
   useEffect(() => { fetchData() }, [fetchData])
-
-  // Re-fetch whenever days_off changes (deletions, approvals, rejections)
-  useEffect(() => {
-    const channel = supabase
-      .channel('calendar_days_off_watch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'days_off' }, () => {
-        fetchData()
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [supabase, fetchData])
 
   // Sync currentMonth to weekStart when week view crosses a month boundary
   useEffect(() => {
@@ -266,10 +243,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
 
   function getAppointments(dateStr: string) {
     return appointments.filter(a => a.date === dateStr)
-  }
-
-  function getMyDayOff(dateStr: string): DayOff | null {
-    return daysOff.find(d => d.date === dateStr && d.applicator_id === profile.id) ?? null
   }
 
   function getTrucksForDate(dateStr: string): Truck[] {
@@ -290,22 +263,14 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       ? active.filter(t => coveringRules[0].truck_ids!.includes(t.id))
       : active
 
-    const approvedOff = daysOff.filter(d => d.date === dateStr && d.status === 'approved')
     const assignedTruckIds = getAppointments(dateStr)
       .filter(a => a.status !== 'rejected' && a.truck_id)
       .map(a => a.truck_id!)
 
-    return eligible.filter(t => {
-      if (assignedTruckIds.includes(t.id)) return false
-      if (approvedOff.some(d => d.truck_id === t.id)) return false
-      if (t.applicator_id && approvedOff.some(d => d.applicator_id === t.applicator_id)) return false
-      return true
-    })
+    return eligible.filter(t => !assignedTruckIds.includes(t.id))
   }
 
   // Computes the effective max slots for a date using closure over all state.
-  // This replaces the old external resolveCapacity() which had issues receiving
-  // daysOff as a parameter. Uses the same day-off filtering logic as getAvailableTrucks.
   function getDateCapacity(dateStr: string): DayCapacityResult {
     const date = parseISO(dateStr)
     const dayOfWeek = getDay(date)
@@ -329,13 +294,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       ruleTrucks = allActiveTrucks.filter(t => coveringRules[0].truck_ids!.includes(t.id))
     }
 
-    // 5. Deduct approved days off (same logic as getAvailableTrucks — this is what works)
-    const approvedOff = daysOff.filter(d => d.date === dateStr && d.status === 'approved')
-    const truckCap = ruleTrucks.filter(t => {
-      if (approvedOff.some(d => d.truck_id === t.id)) return false
-      if (t.applicator_id && approvedOff.some(d => d.applicator_id === t.applicator_id)) return false
-      return true
-    }).length
+    // 5. Available truck count (assigned trucks already excluded via getAvailableTrucks)
+    const truckCap = ruleTrucks.length
 
     // 6. Apply rule or fallback
     if (coveringRules.length > 0) {
@@ -363,7 +323,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     : { max: defaultMax, isWeekendBlocked: false }
 
   function handleDayClick(dateStr: string) {
-    if (isViewer || draggedAppt) return
+    if (isViewer || isApplicator || draggedAppt) return
     setSelectedDate(dateStr)
   }
 
@@ -475,11 +435,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
           </div>
         </div>
       )}
-      {isApplicator && (
-        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 text-sm text-blue-700 text-center">
-          Click any day to request a day off.
-        </div>
-      )}
       {dragError && (
         <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-sm text-red-700 text-center">
           {dragError}
@@ -589,7 +544,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                 : (isSalesManager && showMyOnly)
                   ? dayAppts.filter(a => a.salesman_id === profile.id)
                   : dayAppts
-            const myDayOff  = getMyDayOff(dateStr)
             const blackout  = blackoutDays.find(b => b.date === dateStr) ?? null
             const { max, isWeekendBlocked } = getDateCapacity(dateStr)
             // Sum slot_count across all non-rejected appointments on this day.
@@ -639,20 +593,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   <div className="mt-1">
                     <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700 block truncate">
                       {blackout.reason ? blackout.reason : 'Blocked'}
-                    </span>
-                  </div>
-                )}
-
-                {/* Applicator: day off status */}
-                {isApplicator && myDayOff && inMonth && (
-                  <div className="mt-1">
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                      myDayOff.status === 'approved' ? 'bg-green-100 text-green-700' :
-                      myDayOff.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                      'bg-yellow-100 text-yellow-700'
-                    }`}>
-                      {myDayOff.status === 'approved' ? 'Off ✓' :
-                       myDayOff.status === 'rejected' ? 'Denied' : 'Off?'}
                     </span>
                   </div>
                 )}
@@ -889,14 +829,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded inline-block cal-blackout border border-red-300" />Blocked / Holiday</span>
           </div>
         )}
-        {isApplicator && (
-          <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300 inline-block" />Pending</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-100 border border-green-300 inline-block" />Approved off</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Denied</span>
-          </div>
-        )}
-
         {/* Product color guide — show for everyone except viewers */}
         {!isViewer && (
           <div>
@@ -927,16 +859,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
         <ApptDetailModal appt={detailAppt} onClose={() => setDetailAppt(null)} />
       )}
 
-      {selectedDate && isApplicator && (
-        <DayOffModal
-          date={selectedDate}
-          profile={profile}
-          existingRequest={getMyDayOff(selectedDate)}
-          trucks={trucks}
-          onClose={() => setSelectedDate(null)}
-          onSuccess={() => { setSelectedDate(null); fetchData() }}
-        />
-      )}
 
       {selectedDate && canSchedule && (
         <AppointmentModal

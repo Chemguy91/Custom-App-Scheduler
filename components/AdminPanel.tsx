@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ApprovalRequest, BlackoutDay, CapacityRule, DayOff, Profile, Truck } from '@/lib/types'
+import { ApprovalRequest, BlackoutDay, CapacityRule, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -14,12 +14,11 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
   const [trucks, setTrucks] = useState<Truck[]>([])
-  const [daysOffRequests, setDaysOffRequests] = useState<DayOff[]>([])
   const [blackoutDays, setBlackoutDays] = useState<BlackoutDay[]>([])
   const [defaultCapacity, setDefaultCapacity] = useState('5')
   const [savingCapacity, setSavingCapacity] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'requests' | 'daysoff' | 'trucks' | 'capacity' | 'users' | 'settings'>('requests')
+  const [activeTab, setActiveTab] = useState<'requests' | 'trucks' | 'capacity' | 'users' | 'settings'>('requests')
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
   const [newAlert, setNewAlert]           = useState<{ count: number; name: string } | null>(null)
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -33,7 +32,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [reqRes, profRes, rulesRes, trucksRes, daysOffRes, blackoutRes, settingsRes] = await Promise.all([
+    const [reqRes, profRes, rulesRes, trucksRes, blackoutRes, settingsRes] = await Promise.all([
       supabase
         .from('approval_requests')
         .select(`*, profiles!approval_requests_salesman_id_fkey(full_name)`)
@@ -41,7 +40,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
       supabase.from('profiles').select('*').order('full_name'),
       supabase.from('capacity_rules').select('*').order('created_at', { ascending: false }),
       supabase.from('trucks_with_details').select('*').order('name'),
-      supabase.from('days_off').select(`*, profiles!days_off_applicator_id_fkey(full_name), trucks(name)`).order('date'),
       supabase.from('blackout_days').select('*').order('date'),
       supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
     ])
@@ -56,13 +54,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     if (rulesRes.data) setCapacityRules(rulesRes.data as CapacityRule[])
     if (trucksRes.data) setTrucks(trucksRes.data as Truck[])
     if (blackoutRes?.data) setBlackoutDays(blackoutRes.data as BlackoutDay[])
-    if (daysOffRes.data) {
-      setDaysOffRequests(daysOffRes.data.map((d: Record<string, unknown>) => ({
-        ...d,
-        applicator_name: (d.profiles as { full_name: string } | null)?.full_name ?? 'Unknown',
-        truck_name: (d.trucks as { name: string } | null)?.name ?? null,
-      })) as DayOff[])
-    }
     if (settingsRes.data) setDefaultCapacity(settingsRes.data.value)
     setLoading(false)
   }, [supabase])
@@ -272,15 +263,12 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
       <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 flex-wrap">
         {([
           { id: 'requests',  label: 'Requests' },
-          { id: 'daysoff',   label: 'Days Off' },
           { id: 'trucks',    label: 'Trucks' },
           { id: 'capacity',  label: 'Capacity' },
           { id: 'users',     label: 'Users' },
           { id: 'settings',  label: 'Settings' },
         ] as const).map(tab => {
-          const pending = tab.id === 'requests' ? pendingRequests.length
-            : tab.id === 'daysoff' ? daysOffRequests.filter(d => d.status === 'pending').length
-            : 0
+          const pending = tab.id === 'requests' ? pendingRequests.length : 0
           return (
             <button
               key={tab.id}
@@ -316,15 +304,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
             </div>
           )}
 
-          {/* DAYS OFF TAB */}
-          {activeTab === 'daysoff' && (
-            <DaysOffTab
-              requests={daysOffRequests}
-              adminId={profile.id}
-              supabase={supabase}
-              onRefresh={fetchData}
-            />
-          )}
 
           {/* TRUCKS TAB */}
           {activeTab === 'trucks' && (
@@ -878,158 +857,7 @@ function RoleSelect({
   )
 }
 
-// ─── Days Off Tab ─────────────────────────────────────────────────────────────
 
-function DaysOffTab({
-  requests,
-  adminId,
-  supabase,
-  onRefresh,
-}: {
-  requests: DayOff[]
-  adminId: string
-  supabase: ReturnType<typeof createClient>
-  onRefresh: () => void
-}) {
-  const [note, setNote] = useState<Record<string, string>>({})
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editNote, setEditNote]   = useState('')
-  const pending  = requests.filter(r => r.status === 'pending')
-  const reviewed = requests.filter(r => r.status !== 'pending')
-
-  async function respond(id: string, status: 'approved' | 'rejected') {
-    await supabase.from('days_off').update({
-      status,
-      admin_note: note[id] || null,
-      reviewed_by: adminId,
-      reviewed_at: new Date().toISOString(),
-    }).eq('id', id)
-    onRefresh()
-  }
-
-  async function changeStatus(req: DayOff, newStatus: 'approved' | 'rejected') {
-    await supabase.from('days_off').update({
-      status: newStatus,
-      admin_note: editNote || req.admin_note || null,
-      reviewed_by: adminId,
-      reviewed_at: new Date().toISOString(),
-    }).eq('id', req.id)
-    setEditingId(null)
-    setEditNote('')
-    onRefresh()
-  }
-
-  async function deleteDayOff(id: string) {
-    if (!confirm('Delete this day-off entry?')) return
-    await supabase.from('days_off').delete().eq('id', id)
-    onRefresh()
-  }
-
-  return (
-    <div className="space-y-4">
-      {pending.length === 0 && (
-        <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-gray-200">
-          No pending day-off requests
-        </div>
-      )}
-      {pending.map(req => (
-        <div key={req.id} className="bg-white rounded-xl border border-yellow-200 p-4">
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="font-medium text-gray-900">{req.applicator_name}</p>
-              <p className="text-sm text-gray-500">
-                {format(parseISO(req.date), 'EEE, MMM d, yyyy')}
-                {req.truck_name && <span className="ml-2 text-blue-600">· {req.truck_name}</span>}
-              </p>
-              {req.reason && <p className="text-sm text-gray-600 mt-1">{req.reason}</p>}
-            </div>
-            <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">Pending</span>
-          </div>
-          <input
-            type="text"
-            placeholder="Optional note to applicator…"
-            value={note[req.id] ?? ''}
-            onChange={e => setNote(prev => ({ ...prev, [req.id]: e.target.value }))}
-            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <div className="flex gap-2">
-            <button onClick={() => respond(req.id, 'rejected')} className="flex-1 border border-gray-200 text-gray-700 text-sm font-medium py-1.5 rounded-lg hover:bg-gray-50 transition-colors">Deny</button>
-            <button onClick={() => respond(req.id, 'approved')} className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors">Approve</button>
-          </div>
-        </div>
-      ))}
-
-      {reviewed.length > 0 && (
-        <>
-          <h3 className="text-sm font-medium text-gray-500 pt-2">Previously reviewed</h3>
-          {reviewed.map(req => (
-            <div key={req.id} className="bg-white rounded-xl border border-gray-200 p-4">
-              {editingId === req.id ? (
-                /* Edit mode */
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-medium text-gray-900">{req.applicator_name}</p>
-                      <p className="text-sm text-gray-500">
-                        {format(parseISO(req.date), 'EEE, MMM d, yyyy')}
-                        {req.truck_name && <span className="ml-2 text-blue-600">· {req.truck_name}</span>}
-                      </p>
-                    </div>
-                    <button onClick={() => { setEditingId(null); setEditNote('') }} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Update note…"
-                    value={editNote}
-                    onChange={e => setEditNote(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <div className="flex gap-2">
-                    {req.status === 'approved' ? (
-                      <button onClick={() => changeStatus(req, 'rejected')} className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors">Revoke Approval</button>
-                    ) : (
-                      <button onClick={() => changeStatus(req, 'approved')} className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors">Re-approve</button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                /* Read mode */
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-gray-900">{req.applicator_name}</p>
-                    <p className="text-sm text-gray-500">
-                      {format(parseISO(req.date), 'EEE, MMM d, yyyy')}
-                      {req.truck_name && <span className="ml-2 text-blue-600">· {req.truck_name}</span>}
-                    </p>
-                    {req.reason && <p className="text-sm text-gray-600 mt-1">{req.reason}</p>}
-                    {req.admin_note && <p className="text-xs text-gray-400 italic mt-1">Note: {req.admin_note}</p>}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
-                      req.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    }`}>{req.status}</span>
-                    <button
-                      onClick={() => { setEditingId(req.id); setEditNote(req.admin_note ?? '') }}
-                      className="text-xs text-blue-500 hover:text-blue-700 font-medium"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => deleteDayOff(req.id)}
-                      className="text-xs text-red-400 hover:text-red-600 font-medium"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </>
-      )}
-    </div>
-  )
-}
 
 // ─── Trucks Tab ───────────────────────────────────────────────────────────────
 
