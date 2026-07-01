@@ -426,6 +426,20 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                   </button>
                 </div>
               </div>
+
+              {/* Blackout Days */}
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="font-semibold text-gray-900 mb-1">Blackout Days</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Block specific dates for holidays or closures. Salesmen cannot schedule applications on blacked-out days.
+                </p>
+                <BlackoutDaysManager
+                  supabase={supabase}
+                  adminId={profile.id}
+                  blackoutDays={blackoutDays}
+                  onRefresh={fetchData}
+                />
+              </div>
             </div>
           )}
 
@@ -481,20 +495,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                   Set an exact application count for one specific date — overrides all rules.
                 </p>
                 <CapacityOverride supabase={supabase} adminId={profile.id} />
-              </div>
-
-              {/* Blackout Days */}
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-900 mb-1">Blackout Days</h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  Block specific dates for holidays or closures. Salesmen cannot schedule applications on blacked-out days.
-                </p>
-                <BlackoutDaysManager
-                  supabase={supabase}
-                  adminId={profile.id}
-                  blackoutDays={blackoutDays}
-                  onRefresh={fetchData}
-                />
               </div>
             </div>
           )}
