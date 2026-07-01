@@ -124,11 +124,21 @@ export default function CalendarView({ profile }: { profile: Profile }) {
 
   function getAvailableTrucks(dateStr: string): Truck[] {
     const active = getTrucksForDate(dateStr)
+
+    // Respect capacity rule truck_ids — same logic as getDateCapacity
+    const coveringRules = capacityRules
+      .filter(r => r.start_date <= dateStr && r.end_date >= dateStr)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    const eligible = (coveringRules.length > 0 && coveringRules[0].truck_ids?.length)
+      ? active.filter(t => coveringRules[0].truck_ids!.includes(t.id))
+      : active
+
     const approvedOff = daysOff.filter(d => d.date === dateStr && d.status === 'approved')
     const assignedTruckIds = getAppointments(dateStr)
       .filter(a => a.status !== 'rejected' && a.truck_id)
       .map(a => a.truck_id!)
-    return active.filter(t => {
+
+    return eligible.filter(t => {
       if (assignedTruckIds.includes(t.id)) return false
       if (approvedOff.some(d => d.truck_id === t.id)) return false
       if (t.applicator_id && approvedOff.some(d => d.applicator_id === t.applicator_id)) return false
