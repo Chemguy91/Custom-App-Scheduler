@@ -32,12 +32,19 @@ function resolveCapacity(
   const override = dailyCapacities.find(c => c.date === dateStr)
   if (override) return { max: override.max_trucks, isWeekendBlocked: false }
 
-  const activeTrucks = trucks.filter(t =>
+  const activeTruckList = trucks.filter(t =>
     (!t.active_from || t.active_from <= dateStr) &&
     (!t.active_to   || t.active_to   >= dateStr)
-  ).length
+  )
+  const activeTrucks = activeTruckList.length
 
-  const approvedDaysOff = daysOff.filter(d => d.date === dateStr && d.status === 'approved').length
+  // Only deduct days off where that applicator's truck is active on this date
+  const approvedDaysOff = daysOff.filter(d => {
+    if (d.date !== dateStr || d.status !== 'approved') return false
+    if (!d.truck_id) return false
+    return activeTruckList.some(t => t.id === d.truck_id)
+  }).length
+
   const truckCapacity = Math.max(0, activeTrucks - approvedDaysOff)
 
   const coveringRules = capacityRules
