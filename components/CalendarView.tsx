@@ -28,6 +28,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [defaultMax, setDefaultMax]     = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [loading, setLoading]           = useState(true)
+  const [showMyOnly, setShowMyOnly]     = useState(false)
 
   // Drag & drop state
   const [draggedAppt, setDraggedAppt]   = useState<Appointment | null>(null)
@@ -268,9 +269,30 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       )}
 
       {/* Month navigation */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h2 className="text-xl font-bold text-gray-900">{format(currentMonth, 'MMMM yyyy')}</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* View toggle — sales managers only */}
+          {isSalesManager && (
+            <div className="flex items-center bg-gray-100 rounded-lg p-0.5 text-sm">
+              <button
+                onClick={() => setShowMyOnly(false)}
+                className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                  !showMyOnly ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                All jobs
+              </button>
+              <button
+                onClick={() => setShowMyOnly(true)}
+                className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                  showMyOnly ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                My jobs
+              </button>
+            </div>
+          )}
           <button onClick={() => setCurrentMonth(m => subMonths(m, 1))} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
             <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -300,10 +322,14 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       ) : (
         <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden border border-gray-200">
           {days.map(day => {
-            const dateStr   = format(day, 'yyyy-MM-dd')
-            const inMonth   = isSameMonth(day, currentMonth)
-            const today     = isToday(day)
-            const dayAppts  = getAppointments(dateStr)
+            const dateStr    = format(day, 'yyyy-MM-dd')
+            const inMonth    = isSameMonth(day, currentMonth)
+            const today      = isToday(day)
+            const dayAppts   = getAppointments(dateStr)
+            // For chip display: optionally filter to only the current user's jobs
+            const visibleAppts = (isSalesManager && showMyOnly)
+              ? dayAppts.filter(a => a.salesman_id === profile.id)
+              : dayAppts
             const myDayOff  = getMyDayOff(dateStr)
             const blackout  = blackoutDays.find(b => b.date === dateStr) ?? null
             const { max, isWeekendBlocked } = getDateCapacity(dateStr)
@@ -383,7 +409,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                 {/* Appointment chips — draggable */}
                 {!isApplicator && (
                   <div className="mt-1 space-y-0.5">
-                    {dayAppts.slice(0, 3).map(a => {
+                    {visibleAppts.slice(0, 3).map(a => {
                       const draggable = canDrag(a) && canSchedule
                       const isDisinfect = a.job_type === 'stg_disinfect'
                       return (
@@ -408,8 +434,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                         </div>
                       )
                     })}
-                    {dayAppts.length > 3 && (
-                      <div className="text-xs text-gray-400">+{dayAppts.length - 3} more</div>
+                    {visibleAppts.length > 3 && (
+                      <div className="text-xs text-gray-400">+{visibleAppts.length - 3} more</div>
                     )}
                   </div>
                 )}
