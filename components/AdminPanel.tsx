@@ -214,7 +214,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
   }
 
   const pendingRequests = requests.filter(r => r.status === 'pending')
-  const reviewedRequests = requests.filter(r => r.status !== 'pending')
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
@@ -268,14 +267,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
               {pendingRequests.map(req => (
                 <RequestCard key={req.id} req={req} onAction={handleApprovalAction} />
               ))}
-              {reviewedRequests.length > 0 && (
-                <>
-                  <h3 className="text-sm font-medium text-gray-500 pt-2">Previously reviewed</h3>
-                  {reviewedRequests.map(req => (
-                    <RequestCard key={req.id} req={req} onAction={handleApprovalAction} onFix={fixMissingAppointment} readonly />
-                  ))}
-                </>
-              )}
             </div>
           )}
 
@@ -676,6 +667,8 @@ function DaysOffTab({
   onRefresh: () => void
 }) {
   const [note, setNote] = useState<Record<string, string>>({})
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editNote, setEditNote]   = useState('')
   const pending  = requests.filter(r => r.status === 'pending')
   const reviewed = requests.filter(r => r.status !== 'pending')
 
@@ -686,6 +679,24 @@ function DaysOffTab({
       reviewed_by: adminId,
       reviewed_at: new Date().toISOString(),
     }).eq('id', id)
+    onRefresh()
+  }
+
+  async function changeStatus(req: DayOff, newStatus: 'approved' | 'rejected') {
+    await supabase.from('days_off').update({
+      status: newStatus,
+      admin_note: editNote || req.admin_note || null,
+      reviewed_by: adminId,
+      reviewed_at: new Date().toISOString(),
+    }).eq('id', req.id)
+    setEditingId(null)
+    setEditNote('')
+    onRefresh()
+  }
+
+  async function deleteDayOff(id: string) {
+    if (!confirm('Delete this day-off entry?')) return
+    await supabase.from('days_off').delete().eq('id', id)
     onRefresh()
   }
 
@@ -727,19 +738,66 @@ function DaysOffTab({
         <>
           <h3 className="text-sm font-medium text-gray-500 pt-2">Previously reviewed</h3>
           {reviewed.map(req => (
-            <div key={req.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-start justify-between">
-              <div>
-                <p className="font-medium text-gray-900">{req.applicator_name}</p>
-                <p className="text-sm text-gray-500">
-                  {format(parseISO(req.date), 'EEE, MMM d, yyyy')}
-                  {req.truck_name && <span className="ml-2 text-blue-600">· {req.truck_name}</span>}
-                </p>
-                {req.reason && <p className="text-sm text-gray-600 mt-1">{req.reason}</p>}
-                {req.admin_note && <p className="text-xs text-gray-400 italic mt-1">Note: {req.admin_note}</p>}
-              </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
-                req.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-              }`}>{req.status}</span>
+            <div key={req.id} className="bg-white rounded-xl border border-gray-200 p-4">
+              {editingId === req.id ? (
+                /* Edit mode */
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-medium text-gray-900">{req.applicator_name}</p>
+                      <p className="text-sm text-gray-500">
+                        {format(parseISO(req.date), 'EEE, MMM d, yyyy')}
+                        {req.truck_name && <span className="ml-2 text-blue-600">· {req.truck_name}</span>}
+                      </p>
+                    </div>
+                    <button onClick={() => { setEditingId(null); setEditNote('') }} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Update note…"
+                    value={editNote}
+                    onChange={e => setEditNote(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div className="flex gap-2">
+                    {req.status === 'approved' ? (
+                      <button onClick={() => changeStatus(req, 'rejected')} className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors">Revoke Approval</button>
+                    ) : (
+                      <button onClick={() => changeStatus(req, 'approved')} className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors">Re-approve</button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Read mode */
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-gray-900">{req.applicator_name}</p>
+                    <p className="text-sm text-gray-500">
+                      {format(parseISO(req.date), 'EEE, MMM d, yyyy')}
+                      {req.truck_name && <span className="ml-2 text-blue-600">· {req.truck_name}</span>}
+                    </p>
+                    {req.reason && <p className="text-sm text-gray-600 mt-1">{req.reason}</p>}
+                    {req.admin_note && <p className="text-xs text-gray-400 italic mt-1">Note: {req.admin_note}</p>}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
+                      req.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>{req.status}</span>
+                    <button
+                      onClick={() => { setEditingId(req.id); setEditNote(req.admin_note ?? '') }}
+                      className="text-xs text-blue-500 hover:text-blue-700 font-medium"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteDayOff(req.id)}
+                      className="text-xs text-red-400 hover:text-red-600 font-medium"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </>
