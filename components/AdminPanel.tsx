@@ -1481,6 +1481,50 @@ function RequestCard({
   )
 }
 
+// ─── US Federal Holiday Calculator ───────────────────────────────────────────
+
+function nthWeekday(year: number, month: number, weekday: number, n: number): string {
+  // month: 0-based. weekday: 0=Sun…6=Sat. n: 1-based (1=first, -1=last)
+  if (n > 0) {
+    const first = new Date(year, month, 1)
+    const offset = (weekday - first.getDay() + 7) % 7
+    return fmt(new Date(year, month, 1 + offset + (n - 1) * 7))
+  } else {
+    // last occurrence
+    const last = new Date(year, month + 1, 0)
+    const offset = (last.getDay() - weekday + 7) % 7
+    return fmt(new Date(year, month, last.getDate() - offset))
+  }
+}
+
+function observed(year: number, month: number, day: number): string {
+  const d = new Date(year, month, day)
+  const dow = d.getDay()
+  if (dow === 6) return fmt(new Date(year, month, day - 1)) // Sat → Fri
+  if (dow === 0) return fmt(new Date(year, month, day + 1)) // Sun → Mon
+  return fmt(d)
+}
+
+function fmt(d: Date): string {
+  return d.toISOString().split('T')[0]
+}
+
+function getUSHolidays(year: number): { date: string; reason: string }[] {
+  return [
+    { date: observed(year,  0,  1), reason: "New Year's Day"            },
+    { date: nthWeekday(year, 0, 1, 3), reason: 'Martin Luther King Jr. Day' },
+    { date: nthWeekday(year, 1, 1, 3), reason: "Presidents' Day"            },
+    { date: nthWeekday(year, 4, 1,-1), reason: 'Memorial Day'               },
+    { date: observed(year,  5, 19), reason: 'Juneteenth'                 },
+    { date: observed(year,  6,  4), reason: 'Independence Day'           },
+    { date: nthWeekday(year, 8, 1, 1), reason: 'Labor Day'                   },
+    { date: nthWeekday(year, 9, 1, 2), reason: 'Columbus Day'                },
+    { date: observed(year, 10, 11), reason: 'Veterans Day'               },
+    { date: nthWeekday(year,10, 4, 4), reason: 'Thanksgiving Day'            },
+    { date: observed(year, 11, 25), reason: 'Christmas Day'              },
+  ]
+}
+
 // ─── Blackout Days Manager ────────────────────────────────────────────────────
 
 function BlackoutDaysManager({
@@ -1498,6 +1542,38 @@ function BlackoutDaysManager({
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg]       = useState('')
+
+  const [importYear, setImportYear]   = useState(new Date().getFullYear())
+  const [importing, setImporting]     = useState(false)
+  const [importMsg, setImportMsg]     = useState('')
+
+  async function importHolidays() {
+    setImporting(true)
+    setImportMsg('')
+    const holidays = getUSHolidays(importYear).map(h => ({
+      date: h.date,
+      reason: h.reason,
+      created_by: adminId,
+    }))
+    const { data, error } = await supabase
+      .from('blackout_days')
+      .upsert(holidays, { onConflict: 'date', ignoreDuplicates: true })
+      .select()
+    setImporting(false)
+    if (error) {
+      setImportMsg(`Error: ${error.message}`)
+    } else {
+      const added = data?.length ?? 0
+      const skipped = holidays.length - added
+      setImportMsg(
+        skipped > 0
+          ? `Added ${added} holiday${added !== 1 ? 's' : ''}; ${skipped} already existed.`
+          : `Added ${added} US federal holiday${added !== 1 ? 's' : ''} for ${importYear}.`
+      )
+      onRefresh()
+      setTimeout(() => setImportMsg(''), 4000)
+    }
+  }
 
   async function addBlackout() {
     if (!date) return
@@ -1562,6 +1638,41 @@ function BlackoutDaysManager({
           {msg}
         </p>
       )}
+
+      {/* Import US federal holidays */}
+      <div className="border border-blue-200 bg-blue-50 rounded-lg p-3">
+        <p className="text-xs font-semibold text-blue-700 mb-2 uppercase tracking-wide">Import US Federal Holidays</p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Year</label>
+            <select
+              value={importYear}
+              onChange={e => setImportYear(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {[-1, 0, 1, 2].map(offset => {
+                const y = new Date().getFullYear() + offset
+                return <option key={y} value={y}>{y}</option>
+              })}
+            </select>
+          </div>
+          <button
+            onClick={importHolidays}
+            disabled={importing}
+            className="self-end bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            {importing ? 'Importing…' : `Import ${importYear} Holidays`}
+          </button>
+        </div>
+        {importMsg && (
+          <p className={`text-xs mt-2 ${importMsg.startsWith('Error') ? 'text-red-600' : 'text-green-700'}`}>
+            {importMsg}
+          </p>
+        )}
+        <p className="text-xs text-blue-500 mt-1">
+          Imports all 11 federal holidays (observed dates). Skips any dates already blocked.
+        </p>
+      </div>
 
       {/* Existing blackout days */}
       {blackoutDays.length > 0 ? (
