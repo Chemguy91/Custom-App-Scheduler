@@ -32,10 +32,13 @@ export interface Appointment {
   products: ProductEntry[]
   notes: string | null
   status: AppointmentStatus
+  truck_id: string | null
   created_at: string
   updated_at: string
   // from view
   salesman_name?: string
+  truck_name?: string
+  applicator_name?: string
 }
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected'

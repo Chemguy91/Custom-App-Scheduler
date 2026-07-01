@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Appointment, Profile } from '@/lib/types'
+import { Appointment, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
 
 // ─── Product & Rate Data ──────────────────────────────────────────────────────
@@ -46,6 +46,8 @@ interface Props {
   maxTrucks: number
   isWeekendBlocked?: boolean
   currentProfile: Profile
+  trucksForDay: Truck[]       // all active trucks on this date (for admin override)
+  availableTrucks: Truck[]    // trucks not yet booked / not on day off
   editingAppointment?: Appointment | null
   onClose: () => void
   onSuccess: () => void
@@ -59,6 +61,8 @@ export default function AppointmentModal({
   maxTrucks,
   isWeekendBlocked = false,
   currentProfile,
+  trucksForDay,
+  availableTrucks,
   editingAppointment,
   onClose,
   onSuccess,
@@ -68,24 +72,31 @@ export default function AppointmentModal({
   const isFull = confirmedAppts.length >= maxTrucks || (isWeekendBlocked && maxTrucks === 0)
   const isAdmin = currentProfile.role === 'admin'
 
+  // Auto-assigned truck for a new booking
+  const autoTruck = availableTrucks[0] ?? null
+
+  // Admin truck override: start with the editing appointment's truck or the auto-assigned one
+  const [adminTruckId, setAdminTruckId] = useState<string>(
+    editingAppointment?.truck_id ?? autoTruck?.id ?? ''
+  )
+
   // Parse existing products if editing
   const existingProducts: ProductEntry[] = editingAppointment?.products
     ? (editingAppointment.products as ProductEntry[])
     : []
 
-  const [customerName, setCustomerName]   = useState(editingAppointment?.customer_name ?? '')
-  const [storageName, setStorageName]     = useState((editingAppointment as Appointment & { storage_name?: string })?.storage_name ?? '')
-  const [cwt, setCwt]                     = useState<string>((editingAppointment as Appointment & { cwt?: number })?.cwt?.toString() ?? '')
+  const [customerName, setCustomerName]         = useState(editingAppointment?.customer_name ?? '')
+  const [storageName, setStorageName]           = useState(editingAppointment?.storage_name ?? '')
+  const [cwt, setCwt]                           = useState<string>(editingAppointment?.cwt?.toString() ?? '')
   const [selectedProducts, setSelectedProducts] = useState<ProductEntry[]>(existingProducts)
-  const [notes, setNotes]                 = useState(editingAppointment?.notes ?? '')
-  const [loading, setLoading]             = useState(false)
-  const [error, setError]                 = useState('')
-  const [showRequestForm, setShowRequestForm] = useState(false)
+  const [notes, setNotes]                       = useState(editingAppointment?.notes ?? '')
+  const [loading, setLoading]                   = useState(false)
+  const [error, setError]                       = useState('')
+  const [showRequestForm, setShowRequestForm]   = useState(false)
 
-  const displayDate   = format(parseISO(date), 'EEEE, MMMM d, yyyy')
+  const displayDate    = format(parseISO(date), 'EEEE, MMMM d, yyyy')
   const confirmedCount = confirmedAppts.length
 
-  // Toggle a product on/off
   function toggleProduct(product: string) {
     setSelectedProducts(prev => {
       const exists = prev.find(p => p.product === product)
@@ -94,7 +105,6 @@ export default function AppointmentModal({
     })
   }
 
-  // Update rate for a specific product
   function setRate(product: string, rate: string) {
     setSelectedProducts(prev =>
       prev.map(p => p.product === product ? { ...p, rate } : p)
@@ -103,6 +113,13 @@ export default function AppointmentModal({
 
   function isSelected(product: string) {
     return selectedProducts.some(p => p.product === product)
+  }
+
+  // Resolve which truck_id to save
+  function resolvedTruckId(): string | null {
+    if (isAdmin) return adminTruckId || null
+    // Salesman: use auto-assigned truck (first available)
+    return autoTruck?.id ?? null
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -114,13 +131,16 @@ export default function AppointmentModal({
     }
     setLoading(true)
 
+    const truckId = resolvedTruckId()
+
     const payload = {
       customer_name: customerName,
-      storage_name: storageName,
-      cwt: cwt ? parseFloat(cwt) : null,
-      products: selectedProducts,
+      storage_name:  storageName,
+      cwt:           cwt ? parseFloat(cwt) : null,
+      products:      selectedProducts,
       notes,
-      updated_at: new Date().toISOString(),
+      truck_id:      truckId,
+      updated_at:    new Date().toISOString(),
     }
 
     try {
@@ -134,13 +154,14 @@ export default function AppointmentModal({
         const { error } = await supabase
           .from('approval_requests')
           .insert({
-            salesman_id: currentProfile.id,
+            salesman_id:   currentProfile.id,
             date,
             customer_name: customerName,
-            storage_name: storageName,
-            cwt: cwt ? parseFloat(cwt) : null,
-            products: selectedProducts,
+            storage_name:  storageName,
+            cwt:           cwt ? parseFloat(cwt) : null,
+            products:      selectedProducts,
             notes,
+            truck_id:      truckId,
           })
         if (error) throw error
       } else {
@@ -149,7 +170,7 @@ export default function AppointmentModal({
           .insert({
             date,
             salesman_id: currentProfile.id,
-            status: 'confirmed',
+            status:      'confirmed',
             ...payload,
           })
         if (error) throw error
@@ -214,22 +235,28 @@ export default function AppointmentModal({
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Scheduled</h3>
             <ul className="space-y-2">
               {appointments.map(appt => {
-                const apptProducts = (appt as Appointment & { products?: ProductEntry[] }).products ?? []
+                const apptProducts = (appt.products as ProductEntry[]) ?? []
                 return (
                   <li key={appt.id} className="bg-gray-50 rounded-xl px-3 py-2">
                     <div className="flex items-start justify-between">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900">{appt.customer_name}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium text-gray-900">{appt.customer_name}</p>
+                          {appt.truck_name && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">
+                              {appt.truck_name}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-500">{appt.salesman_name}</p>
-                        {(appt as Appointment & { storage_name?: string }).storage_name && (
-                          <p className="text-xs text-gray-500">
-                            Storage: {(appt as Appointment & { storage_name?: string }).storage_name}
-                          </p>
+                        {appt.applicator_name && (
+                          <p className="text-xs text-gray-400">Applicator: {appt.applicator_name}</p>
                         )}
-                        {(appt as Appointment & { cwt?: number }).cwt && (
-                          <p className="text-xs text-gray-500">
-                            CWT: {(appt as Appointment & { cwt?: number }).cwt?.toLocaleString()}
-                          </p>
+                        {appt.storage_name && (
+                          <p className="text-xs text-gray-500">Storage: {appt.storage_name}</p>
+                        )}
+                        {appt.cwt && (
+                          <p className="text-xs text-gray-500">CWT: {appt.cwt.toLocaleString()}</p>
                         )}
                         {apptProducts.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
@@ -301,6 +328,56 @@ export default function AppointmentModal({
               </div>
             )}
 
+            {/* Truck assignment info */}
+            {!editingAppointment && (
+              <div className="bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                <p className="text-xs font-medium text-gray-500 mb-1">Assigned Truck</p>
+                {isAdmin ? (
+                  <select
+                    value={adminTruckId}
+                    onChange={e => setAdminTruckId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">— No truck —</option>
+                    {trucksForDay.map(t => {
+                      const taken = !availableTrucks.find(a => a.id === t.id)
+                      return (
+                        <option key={t.id} value={t.id}>
+                          {t.name}{t.applicator_name ? ` (${t.applicator_name})` : ''}{taken ? ' — already booked' : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                ) : (
+                  <p className="text-sm font-medium text-gray-900">
+                    {autoTruck
+                      ? <>{autoTruck.name}{autoTruck.applicator_name ? <span className="text-gray-500 font-normal"> · {autoTruck.applicator_name}</span> : null}</>
+                      : <span className="text-gray-400 italic">No truck available</span>
+                    }
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Admin truck override when editing */}
+            {editingAppointment && isAdmin && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Truck</label>
+                <select
+                  value={adminTruckId}
+                  onChange={e => setAdminTruckId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— No truck —</option>
+                  {trucksForDay.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}{t.applicator_name ? ` (${t.applicator_name})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Customer Name */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
@@ -348,7 +425,6 @@ export default function AppointmentModal({
                   <div key={product} className={`rounded-xl border transition-colors ${
                     isSelected(product) ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'
                   }`}>
-                    {/* Product checkbox row */}
                     <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
                       <input
                         type="checkbox"
@@ -360,8 +436,6 @@ export default function AppointmentModal({
                         {product}
                       </span>
                     </label>
-
-                    {/* Rate dropdown — only shown when selected */}
                     {isSelected(product) && (
                       <div className="px-3 pb-3">
                         <label className="block text-xs font-medium text-blue-700 mb-1">Rate</label>

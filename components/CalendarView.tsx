@@ -142,6 +142,26 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     ? resolveCapacity(parseISO(selectedDate), selectedDate, capacities, capacityRules, trucks, daysOff, defaultMax)
     : { max: defaultMax, isWeekendBlocked: false }
 
+  // All trucks active on a given date
+  function getTrucksForDate(dateStr: string): Truck[] {
+    return trucks.filter(t =>
+      (!t.active_from || t.active_from <= dateStr) &&
+      (!t.active_to   || t.active_to   >= dateStr)
+    )
+  }
+
+  // Trucks not yet booked and not on approved day off — for auto-assignment
+  function getAvailableTrucks(dateStr: string): Truck[] {
+    const active = getTrucksForDate(dateStr)
+    const dayOffTruckIds = daysOff
+      .filter(d => d.date === dateStr && d.status === 'approved' && d.truck_id)
+      .map(d => d.truck_id!)
+    const assignedTruckIds = getAppointments(dateStr)
+      .filter(a => a.status !== 'rejected' && a.truck_id)
+      .map(a => a.truck_id!)
+    return active.filter(t => !dayOffTruckIds.includes(t.id) && !assignedTruckIds.includes(t.id))
+  }
+
   function handleDayClick(dateStr: string) {
     if (isViewer) return
     setSelectedDate(dateStr)
@@ -260,7 +280,10 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   <div className="mt-1 space-y-0.5">
                     {dayAppts.slice(0, 2).map(a => (
                       <div key={a.id} className="text-xs truncate text-gray-600 bg-gray-100 rounded px-1 py-0.5">
-                        {a.customer_name}
+                        <span className="font-medium">{a.customer_name}</span>
+                        {a.truck_name && (
+                          <span className="text-gray-400 ml-1">· {a.truck_name}</span>
+                        )}
                       </div>
                     ))}
                     {dayAppts.length > 2 && (
@@ -311,6 +334,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
           maxTrucks={selectedDayCapacity.max}
           isWeekendBlocked={selectedDayCapacity.isWeekendBlocked}
           currentProfile={profile}
+          trucksForDay={getTrucksForDate(selectedDate)}
+          availableTrucks={getAvailableTrucks(selectedDate)}
           onClose={() => setSelectedDate(null)}
           onSuccess={() => { setSelectedDate(null); fetchData() }}
         />
