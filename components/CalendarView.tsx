@@ -46,7 +46,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [defaultMax, setDefaultMax]     = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [loading, setLoading]           = useState(true)
-  const [showMyOnly, setShowMyOnly]     = useState(false)
+  const [showMyOnly, setShowMyOnly]         = useState(false)
+  const [applicatorViewAll, setApplicatorViewAll] = useState(false)
 
   // Drag & drop state
   const [draggedAppt, setDraggedAppt]   = useState<Appointment | null>(null)
@@ -60,6 +61,9 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const isSalesManager = profile.role === 'sales_manager'
   const isAdmin        = profile.role === 'admin'
   const canSchedule    = isSalesManager || isAdmin
+
+  // The truck assigned to this applicator (used to filter their jobs)
+  const myTruck = isApplicator ? trucks.find(t => t.applicator_id === profile.id) ?? null : null
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -290,7 +294,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h2 className="text-xl font-bold text-gray-900">{format(currentMonth, 'MMMM yyyy')}</h2>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* View toggle — sales managers only */}
+          {/* View toggle — sales managers */}
           {isSalesManager && (
             <div className="flex items-center bg-gray-100 rounded-lg p-0.5 text-sm">
               <button
@@ -308,6 +312,28 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                 }`}
               >
                 My jobs
+              </button>
+            </div>
+          )}
+
+          {/* View toggle — applicators */}
+          {isApplicator && (
+            <div className="flex items-center bg-gray-100 rounded-lg p-0.5 text-sm">
+              <button
+                onClick={() => setApplicatorViewAll(false)}
+                className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                  !applicatorViewAll ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                My jobs
+              </button>
+              <button
+                onClick={() => setApplicatorViewAll(true)}
+                className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                  applicatorViewAll ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                All jobs
               </button>
             </div>
           )}
@@ -345,10 +371,14 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             const today      = isToday(day)
             const isPast     = inMonth && isBefore(day, startOfDay(new Date()))
             const dayAppts   = getAppointments(dateStr)
-            // For chip display: optionally filter to only the current user's jobs
-            const visibleAppts = (isSalesManager && showMyOnly)
-              ? dayAppts.filter(a => a.salesman_id === profile.id)
-              : dayAppts
+            // For chip display: filter based on role toggles
+            const visibleAppts = isApplicator
+              ? (applicatorViewAll
+                  ? dayAppts
+                  : dayAppts.filter(a => myTruck ? a.truck_id === myTruck.id : false))
+              : (isSalesManager && showMyOnly)
+                ? dayAppts.filter(a => a.salesman_id === profile.id)
+                : dayAppts
             const myDayOff  = getMyDayOff(dateStr)
             const blackout  = blackoutDays.find(b => b.date === dateStr) ?? null
             const { max, isWeekendBlocked } = getDateCapacity(dateStr)
@@ -427,11 +457,11 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   </div>
                 )}
 
-                {/* Appointment chips — draggable */}
-                {!isApplicator && (
+                {/* Appointment chips */}
+                {(isApplicator ? inMonth : true) && (
                   <div className="mt-1 space-y-0.5">
                     {visibleAppts.slice(0, 3).map(a => {
-                      const draggable = canDrag(a) && canSchedule
+                      const draggable = !isApplicator && canDrag(a) && canSchedule
                       const isDisinfect = a.job_type === 'stg_disinfect'
                       const chipClass = getProductChipClass(a)
                       return (
@@ -485,8 +515,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
           </div>
         )}
 
-        {/* Product color guide */}
-        {!isApplicator && (
+        {/* Product color guide — show for everyone except viewers */}
+        {!isViewer && (
           <div>
             <p className="text-xs font-medium text-gray-400 mb-1.5">Product colors</p>
             <div className="flex flex-wrap gap-2">
