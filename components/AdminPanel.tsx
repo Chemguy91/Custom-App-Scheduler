@@ -357,28 +357,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                 </table>
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-900 mb-2">Add New User</h3>
-                <p className="text-sm text-gray-500 mb-3">
-                  Go to <strong>Supabase Dashboard → Authentication → Users → Add user</strong>.
-                  Set their role in the metadata:
-                </p>
-                <div className="space-y-2">
-                  {[
-                    { role: 'sales_manager', desc: 'Can schedule and edit their own appointments' },
-                    { role: 'applicator',    desc: 'Can view calendar and request days off' },
-                    { role: 'viewer',        desc: 'Read-only access to the calendar' },
-                    { role: 'admin',         desc: 'Full access to everything' },
-                  ].map(r => (
-                    <div key={r.role} className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-xs font-mono text-gray-600 mb-1">
-                        {`{ "full_name": "Name", "role": "${r.role}" }`}
-                      </p>
-                      <p className="text-xs text-gray-400">{r.desc}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <AddUserForm onSuccess={fetchData} />
             </div>
           )}
 
@@ -396,6 +375,118 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
           )}
         </>
       )}
+    </div>
+  )
+}
+
+// ─── Add User Form ────────────────────────────────────────────────────────────
+
+function AddUserForm({ onSuccess }: { onSuccess: () => void }) {
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail]       = useState('')
+  const [password, setPassword] = useState('')
+  const [role, setRole]         = useState('sales_manager')
+  const [saving, setSaving]     = useState(false)
+  const [msg, setMsg]           = useState('')
+  const [isError, setIsError]   = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true); setMsg(''); setIsError(false)
+
+    const res = await fetch('/api/create-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, full_name: fullName, role }),
+    })
+    const data = await res.json()
+    setSaving(false)
+
+    if (!res.ok) {
+      setIsError(true)
+      setMsg(data.error ?? 'Something went wrong.')
+    } else {
+      setMsg(`${fullName} added successfully!`)
+      setFullName(''); setEmail(''); setPassword(''); setRole('sales_manager')
+      onSuccess()
+      setTimeout(() => setMsg(''), 3000)
+    }
+  }
+
+  const ROLE_DESCRIPTIONS: Record<string, string> = {
+    sales_manager: 'Can schedule and edit their own appointments',
+    applicator:    'Can view calendar and request days off',
+    viewer:        'Read-only access to the calendar',
+    admin:         'Full access to everything',
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <h3 className="font-semibold text-gray-900 mb-4">Add New User</h3>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Full Name</label>
+          <input
+            type="text"
+            required
+            value={fullName}
+            onChange={e => setFullName(e.target.value)}
+            placeholder="John Smith"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="john@example.com"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Temporary Password</label>
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Min. 6 characters"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+          <select
+            value={role}
+            onChange={e => setRole(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="sales_manager">Sales Manager</option>
+            <option value="applicator">Applicator</option>
+            <option value="viewer">Viewer</option>
+            <option value="admin">Admin</option>
+          </select>
+          <p className="text-xs text-gray-400 mt-1">{ROLE_DESCRIPTIONS[role]}</p>
+        </div>
+
+        {msg && (
+          <p className={`text-sm rounded-lg px-3 py-2 ${isError ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
+            {msg}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+        >
+          {saving ? 'Creating user…' : 'Add User'}
+        </button>
+      </form>
     </div>
   )
 }
