@@ -375,7 +375,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   ${inMonth && !isPast && !blackout ? 'cal-future' : ''}
                   ${today ? 'ring-2 ring-inset ring-blue-500' : ''}
                   ${blocked ? 'bg-gray-50' : ''}
-                  ${blackout ? 'bg-red-50' : ''}
+                  ${blackout ? 'cal-blackout' : ''}
                   ${!isViewer ? 'cursor-pointer' : 'cursor-default'}
                   ${isDragTarget ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''}
                 `}
@@ -474,7 +474,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300 inline-block" />Available</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Full</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 border border-gray-300 inline-block" />Approval required</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Blocked / Holiday</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded inline-block cal-blackout border border-red-300" />Blocked / Holiday</span>
           </div>
         )}
         {isApplicator && (
