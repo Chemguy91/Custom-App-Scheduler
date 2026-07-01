@@ -53,6 +53,7 @@ function blankForm(jobType: JobType = 'application') {
     notes:            '',
     selectedProducts: [] as ProductEntry[],
     truckId:          '',
+    slotCount:        jobType === 'stg_disinfect' ? 0 : 1,
   }
 }
 
@@ -66,6 +67,7 @@ function formFromAppt(appt: Appointment) {
     notes:            appt.notes ?? '',
     selectedProducts: (appt.products as ProductEntry[]) ?? [],
     truckId:          appt.truck_id ?? '',
+    slotCount:        appt.slot_count ?? (appt.job_type === 'stg_disinfect' ? 0 : 1),
   }
 }
 
@@ -85,10 +87,14 @@ export default function AppointmentModal({
   const supabase = createClient()
   const isAdmin = currentProfile.role === 'admin'
 
-  // Only application-type appointments count against capacity
   const applicationAppts = appointments.filter(a => a.status !== 'rejected' && (!a.job_type || a.job_type === 'application'))
   const disinfectAppts   = appointments.filter(a => a.status !== 'rejected' && a.job_type === 'stg_disinfect')
-  const isFull = applicationAppts.length >= maxTrucks || (isWeekendBlocked && maxTrucks === 0)
+
+  // Total slots used = sum of slot_count across all non-rejected appointments
+  const usedSlots = appointments
+    .filter(a => a.status !== 'rejected')
+    .reduce((sum, a) => sum + (a.slot_count ?? (a.job_type === 'stg_disinfect' ? 0 : 1)), 0)
+  const isFull = usedSlots >= maxTrucks || (isWeekendBlocked && maxTrucks === 0)
 
   const autoTruck = availableTrucks[0] ?? null
 
@@ -98,8 +104,7 @@ export default function AppointmentModal({
   const [loading, setLoading]             = useState(false)
   const [error, setError]                 = useState('')
 
-  const displayDate      = format(parseISO(date), 'EEEE, MMMM d, yyyy')
-  const confirmedCount   = applicationAppts.length
+  const displayDate = format(parseISO(date), 'EEEE, MMMM d, yyyy')
 
   // ── Form helpers ────────────────────────────────────────────────────────────
 
@@ -172,6 +177,7 @@ export default function AppointmentModal({
       cwt:               null,
       products:          [],
       truck_id:          null,
+      slot_count:        isAdmin ? form.slotCount : 0,
     } : {
       ...basePayload,
       job_type:          'application',
@@ -179,6 +185,7 @@ export default function AppointmentModal({
       cwt:               form.cwt ? parseFloat(form.cwt) : null,
       products:          form.selectedProducts,
       truck_id:          truckId,
+      slot_count:        isAdmin ? form.slotCount : 1,
     }
 
     try {
@@ -270,6 +277,12 @@ export default function AppointmentModal({
               <p className="text-xs text-gray-500">Capacity: {appt.storage_capacity.toLocaleString()} CWT</p>
             )}
             {!isDisinfect && appt.cwt && <p className="text-xs text-gray-500">CWT: {appt.cwt.toLocaleString()}</p>}
+            {(appt.slot_count ?? 1) > 1 && (
+              <p className="text-xs font-medium text-orange-600">{appt.slot_count} trucks / slots</p>
+            )}
+            {isDisinfect && (appt.slot_count ?? 0) > 0 && (
+              <p className="text-xs font-medium text-orange-600">Uses {appt.slot_count} truck slot{appt.slot_count !== 1 ? 's' : ''}</p>
+            )}
             {apptProducts.length > 0 && (
               <div className="mt-1 flex flex-wrap gap-1">
                 {apptProducts.map((pe, i) => (
@@ -309,7 +322,7 @@ export default function AppointmentModal({
               <p className="text-sm text-gray-500 mt-0.5">
                 {isWeekendBlocked && maxTrucks === 0
                   ? 'Weekend — admin approval required'
-                  : `${confirmedCount} of ${maxTrucks} application slots scheduled`}
+                  : `${usedSlots} of ${maxTrucks} truck slots used`}
                 {disinfectAppts.length > 0 && ` · ${disinfectAppts.length} disinfect`}
               </p>
             </div>
@@ -323,8 +336,8 @@ export default function AppointmentModal({
             <div className="mt-3">
               <div className="w-full bg-gray-100 rounded-full h-1.5">
                 <div
-                  className={`h-1.5 rounded-full transition-all ${isFull ? 'bg-red-500' : confirmedCount / maxTrucks > 0.7 ? 'bg-yellow-400' : 'bg-green-500'}`}
-                  style={{ width: `${Math.min((confirmedCount / maxTrucks) * 100, 100)}%` }}
+                  className={`h-1.5 rounded-full transition-all ${isFull ? 'bg-red-500' : usedSlots / maxTrucks > 0.7 ? 'bg-yellow-400' : 'bg-green-500'}`}
+                  style={{ width: `${Math.min((usedSlots / maxTrucks) * 100, 100)}%` }}
                 />
               </div>
             </div>
@@ -401,7 +414,7 @@ export default function AppointmentModal({
                   <button
                     key={t}
                     type="button"
-                    onClick={() => { set('jobType', t); setError('') }}
+                    onClick={() => { set('jobType', t); set('slotCount', t === 'stg_disinfect' ? 0 : 1); setError('') }}
                     className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
                       form.jobType === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
                     }`}
@@ -448,6 +461,41 @@ export default function AppointmentModal({
                         : <span className="text-gray-400 italic">No truck available</span>}
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* Truck / slot count — admin only */}
+            {isAdmin && (
+              <div className="bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500">
+                      {isDisinfectForm ? 'Truck Slots Used' : 'Number of Trucks'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {isDisinfectForm
+                        ? 'Set to 0 if disinfect runs alongside applications, or 1+ if it takes a truck slot.'
+                        : 'Increase if this job requires multiple trucks.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    <button
+                      type="button"
+                      onClick={() => set('slotCount', Math.max(isDisinfectForm ? 0 : 1, form.slotCount - 1))}
+                      className="w-8 h-8 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 font-bold flex items-center justify-center text-lg leading-none"
+                    >
+                      −
+                    </button>
+                    <span className="w-6 text-center font-semibold text-gray-900">{form.slotCount}</span>
+                    <button
+                      type="button"
+                      onClick={() => set('slotCount', Math.min(10, form.slotCount + 1))}
+                      className="w-8 h-8 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 font-bold flex items-center justify-center text-lg leading-none"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

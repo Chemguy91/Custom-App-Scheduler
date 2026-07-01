@@ -36,6 +36,7 @@ export interface Appointment {
   notes: string | null
   status: AppointmentStatus
   truck_id: string | null
+  slot_count: number  // how many truck slots this appointment occupies (0 for disinfects by default)
   created_at: string
   updated_at: string
   // from view

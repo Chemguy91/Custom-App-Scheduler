@@ -303,8 +303,11 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             const dayAppts = getAppointments(dateStr)
             const myDayOff = getMyDayOff(dateStr)
             const { max, isWeekendBlocked } = getDateCapacity(dateStr)
-            const appAppts = dayAppts.filter(a => !a.job_type || a.job_type === 'application')
-            const count    = appAppts.length
+            // Sum slot_count across all non-rejected appointments on this day.
+            // Applications default to 1 slot; disinfects default to 0 but can be raised.
+            const count = dayAppts
+              .filter(a => a.status !== 'rejected')
+              .reduce((sum, a) => sum + (a.slot_count ?? (a.job_type === 'stg_disinfect' ? 0 : 1)), 0)
             const full     = count >= max
             const blocked  = isWeekendBlocked && count === 0
             const isDragTarget = dragOverDate === dateStr && draggedAppt !== null
@@ -385,6 +388,9 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                           <span className="font-medium">{a.customer_name}</span>
                           {!isDisinfect && a.truck_name && <span className="opacity-60 ml-1">· {a.truck_name}</span>}
                           {isDisinfect && <span className="opacity-60 ml-1">· Disinfect</span>}
+                          {(a.slot_count ?? (isDisinfect ? 0 : 1)) > 1 && (
+                            <span className="opacity-75 ml-1">×{a.slot_count}</span>
+                          )}
                         </div>
                       )
                     })}
