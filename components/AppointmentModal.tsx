@@ -571,35 +571,47 @@ export default function AppointmentModal({
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Products</label>
-                  <div className="space-y-2">
-                    {PRODUCTS.map(product => (
-                      <div key={product} className={`rounded-xl border transition-colors ${isSelected(product) ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-white'}`}>
-                        <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isSelected(product)}
-                            onChange={() => toggleProduct(product)}
-                            className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500"
-                          />
-                          <span className={`text-sm font-medium ${isSelected(product) ? 'text-blue-800' : 'text-gray-700'}`}>{product}</span>
-                        </label>
-                        {isSelected(product) && (
-                          <div className="px-3 pb-3">
-                            <label className="block text-xs font-medium text-blue-700 mb-1">Rate</label>
-                            <select
-                              value={form.selectedProducts.find(p => p.product === product)?.rate ?? ''}
-                              onChange={e => setRate(product, e.target.value)}
-                              className="w-full border border-blue-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                              {PRODUCT_RATES[product].map(rate => (
-                                <option key={rate} value={rate}>{rate}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+
+                  {/* Selected products */}
+                  {form.selectedProducts.length > 0 && (
+                    <div className="space-y-2 mb-2">
+                      {form.selectedProducts.map(({ product, rate }) => (
+                        <div key={product} className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                          <span className="text-sm font-medium text-blue-800 flex-1 min-w-0 truncate">{product}</span>
+                          <select
+                            value={rate}
+                            onChange={e => setRate(product, e.target.value)}
+                            className="border border-blue-200 rounded-md px-2 py-1 text-xs bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            {PRODUCT_RATES[product].map(r => (
+                              <option key={r} value={r}>{r}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => toggleProduct(product)}
+                            className="text-blue-400 hover:text-red-500 transition-colors text-lg leading-none shrink-0"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add product dropdown */}
+                  {form.selectedProducts.length < PRODUCTS.length && (
+                    <select
+                      value=""
+                      onChange={e => { if (e.target.value) toggleProduct(e.target.value) }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-500"
+                    >
+                      <option value="">+ Add product…</option>
+                      {PRODUCTS.filter(p => !isSelected(p)).map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               </>
             )}
