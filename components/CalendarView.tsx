@@ -467,21 +467,46 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       )}
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mt-4 text-xs text-gray-500 flex-wrap">
+      <div className="mt-5 space-y-3">
+        {/* Capacity legend */}
         {!isApplicator && (
-          <>
+          <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300 inline-block" />Available</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Full</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 border border-gray-300 inline-block" />Approval required</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Blocked / Holiday</span>
-          </>
+          </div>
         )}
         {isApplicator && (
-          <>
+          <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300 inline-block" />Pending</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-100 border border-green-300 inline-block" />Approved off</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Denied</span>
-          </>
+          </div>
+        )}
+
+        {/* Product color guide */}
+        {!isApplicator && (
+          <div>
+            <p className="text-xs font-medium text-gray-400 mb-1.5">Product colors</p>
+            <div className="flex flex-wrap gap-2">
+              {([
+                { label: 'Smart Block',   cls: 'chip-purple'   },
+                { label: '1,4 Zap',       cls: 'chip-yellow'   },
+                { label: 'DMN',           cls: 'chip-brown'    },
+                { label: 'Storox / Perox AG', cls: 'chip-green' },
+                { label: 'Purogene Pro',  cls: 'chip-blue'     },
+                { label: 'CIPC',          cls: 'chip-orange'   },
+                { label: 'Amplify',       cls: 'chip-white'    },
+                { label: 'Fresh Pack 100',cls: 'chip-pink'     },
+                { label: 'Stg Disinfect', cls: 'chip-disinfect'},
+              ] as const).map(({ label, cls }) => (
+                <span key={label} className={`text-xs px-2 py-0.5 rounded font-medium ${cls}`}>
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

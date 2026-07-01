@@ -8,17 +8,15 @@ import { format, parseISO } from 'date-fns'
 // ─── Product & Rate Data ──────────────────────────────────────────────────────
 
 const PRODUCTS = [
-  'Smart Block', '1,4 Zap', 'DMN (1,4-Sight)', 'Storox 2.0',
-  'Purogene Pro', 'Purogene 2%', 'Perox Ag', 'CIPC', 'Amplify', 'Fresh Pack 100',
+  'Smart Block', '1,4 Zap', 'DMN (1,4-Sight)',
+  'Purogene Pro', 'Perox Ag', 'CIPC', 'Amplify', 'Fresh Pack 100',
 ]
 
 const PRODUCT_RATES: Record<string, string[]> = {
   'Smart Block':      ['11.5 PPM','23 PPM','34.5 PPM','46 PPM','57.5 PPM','69 PPM','80.5 PPM','92 PPM','103.5 PPM','115 PPM'],
   '1,4 Zap':         ['10 PPM','20 PPM','30 PPM','40 PPM','50 PPM','60 PPM','70 PPM','80 PPM','90 PPM','100 PPM'],
   'DMN (1,4-Sight)': ['7.5 PPM','10 PPM','12.5 PPM','15 PPM','16 PPM','17 PPM','18 PPM','19 PPM','20 PPM'],
-  'Storox 2.0':      ['Single','Double','Triple','Chaser'],
   'Purogene Pro':    ['12.5 gal solution / 10,000 CWT (standard)'],
-  'Purogene 2%':     ['12.5 gal solution / 10,000 CWT (standard)'],
   'Perox Ag':        ['Single','Double','Triple','Chaser'],
   'CIPC':            ['1:1,000','1:600','1:500','1:450','1:400'],
   'Amplify':         ['1:1,200','1:900','1:600'],
