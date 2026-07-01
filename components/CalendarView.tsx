@@ -294,7 +294,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             const dayAppts = getAppointments(dateStr)
             const myDayOff = getMyDayOff(dateStr)
             const { max, isWeekendBlocked } = resolveCapacity(day, dateStr, capacities, capacityRules, trucks, daysOff, defaultMax)
-            const count    = dayAppts.length
+            const appAppts = dayAppts.filter(a => !a.job_type || a.job_type === 'application')
+            const count    = appAppts.length
             const full     = count >= max
             const blocked  = isWeekendBlocked && count === 0
             const isDragTarget = dragOverDate === dateStr && draggedAppt !== null
@@ -356,8 +357,9 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                 {/* Appointment chips — draggable */}
                 {!isApplicator && (
                   <div className="mt-1 space-y-0.5">
-                    {dayAppts.slice(0, 2).map(a => {
+                    {dayAppts.slice(0, 3).map(a => {
                       const draggable = canDrag(a) && canSchedule
+                      const isDisinfect = a.job_type === 'stg_disinfect'
                       return (
                         <div
                           key={a.id}
@@ -365,18 +367,20 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                           onDragStart={draggable ? e => handleDragStart(e, a) : undefined}
                           onDragEnd={draggable ? handleDragEnd : undefined}
                           onClick={e => e.stopPropagation()}
-                          className={`text-xs truncate text-gray-600 bg-gray-100 rounded px-1 py-0.5 select-none
-                            ${draggable ? 'cursor-grab active:cursor-grabbing hover:bg-blue-100 hover:text-blue-700' : ''}
+                          className={`text-xs truncate rounded px-1 py-0.5 select-none
+                            ${isDisinfect ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}
+                            ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}
                             ${draggedAppt?.id === a.id ? 'opacity-40' : ''}
                           `}
                         >
                           <span className="font-medium">{a.customer_name}</span>
-                          {a.truck_name && <span className="text-gray-400 ml-1">· {a.truck_name}</span>}
+                          {!isDisinfect && a.truck_name && <span className="opacity-60 ml-1">· {a.truck_name}</span>}
+                          {isDisinfect && <span className="opacity-60 ml-1">· Disinfect</span>}
                         </div>
                       )
                     })}
-                    {dayAppts.length > 2 && (
-                      <div className="text-xs text-gray-400">+{dayAppts.length - 2} more</div>
+                    {dayAppts.length > 3 && (
+                      <div className="text-xs text-gray-400">+{dayAppts.length - 3} more</div>
                     )}
                   </div>
                 )}

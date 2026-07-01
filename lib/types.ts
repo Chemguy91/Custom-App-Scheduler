@@ -16,6 +16,7 @@ export interface DailyCapacity {
 }
 
 export type AppointmentStatus = 'confirmed' | 'pending_approval' | 'approved' | 'rejected'
+export type JobType = 'application' | 'stg_disinfect'
 
 export interface ProductEntry {
   product: string
@@ -26,8 +27,10 @@ export interface Appointment {
   id: string
   date: string        // 'YYYY-MM-DD'
   salesman_id: string
+  job_type: JobType
   customer_name: string
   storage_name: string | null
+  storage_capacity: number | null
   cwt: number | null
   products: ProductEntry[]
   notes: string | null
@@ -48,7 +51,10 @@ export interface ApprovalRequest {
   appointment_id: string | null
   salesman_id: string
   date: string
+  job_type: JobType
   customer_name: string
+  storage_name: string | null
+  storage_capacity: number | null
   notes: string | null
   status: ApprovalStatus
   admin_note: string | null

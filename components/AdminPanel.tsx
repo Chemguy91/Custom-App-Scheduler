@@ -64,11 +64,14 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
       const { data: appt } = await supabaseClient
         .from('appointments')
         .insert({
-          date: req.date,
-          salesman_id: req.salesman_id,
-          customer_name: req.customer_name,
-          notes: req.notes,
-          status: 'approved',
+          date:             req.date,
+          salesman_id:      req.salesman_id,
+          job_type:         req.job_type ?? 'application',
+          customer_name:    req.customer_name,
+          storage_name:     req.storage_name ?? null,
+          storage_capacity: req.storage_capacity ?? null,
+          notes:            req.notes,
+          status:           'approved',
         })
         .select()
         .single()
@@ -76,10 +79,10 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
       await supabaseClient
         .from('approval_requests')
         .update({
-          status: 'approved',
-          admin_note: note ?? null,
-          reviewed_by: profile.id,
-          reviewed_at: new Date().toISOString(),
+          status:         'approved',
+          admin_note:     note ?? null,
+          reviewed_by:    profile.id,
+          reviewed_at:    new Date().toISOString(),
           appointment_id: appt?.id ?? null,
         })
         .eq('id', req.id)
@@ -87,8 +90,8 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
       await supabaseClient
         .from('approval_requests')
         .update({
-          status: 'rejected',
-          admin_note: note ?? null,
+          status:      'rejected',
+          admin_note:  note ?? null,
           reviewed_by: profile.id,
           reviewed_at: new Date().toISOString(),
         })
@@ -1045,20 +1048,32 @@ function RequestCard({
   readonly?: boolean
 }) {
   const [note, setNote] = useState('')
+  const isDisinfect = req.job_type === 'stg_disinfect'
 
   return (
     <div className={`bg-white rounded-xl border p-4 ${
-      req.status === 'pending' ? 'border-yellow-200' : 'border-gray-200'
+      req.status === 'pending' ? (isDisinfect ? 'border-green-200' : 'border-yellow-200') : 'border-gray-200'
     }`}>
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="font-medium text-gray-900">{req.customer_name}</p>
-          <p className="text-sm text-gray-500">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-medium text-gray-900">{req.customer_name}</p>
+            {isDisinfect && (
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Stg Disinfect</span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 mt-0.5">
             {req.salesman_name} · {format(parseISO(req.date), 'EEE, MMM d, yyyy')}
           </p>
+          {req.storage_name && (
+            <p className="text-xs text-gray-500 mt-0.5">Storage: {req.storage_name}</p>
+          )}
+          {isDisinfect && req.storage_capacity && (
+            <p className="text-xs text-gray-500">Capacity: {req.storage_capacity.toLocaleString()} CWT</p>
+          )}
           {req.notes && <p className="text-sm text-gray-600 mt-1">{req.notes}</p>}
         </div>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize shrink-0 ${
           req.status === 'pending'
             ? 'bg-yellow-100 text-yellow-700'
             : req.status === 'approved'
@@ -1089,7 +1104,7 @@ function RequestCard({
               onClick={() => onAction(req, 'approved', note)}
               className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-1.5 rounded-lg transition-colors"
             >
-              Approve
+              {isDisinfect ? 'Approve & Schedule' : 'Approve'}
             </button>
           </div>
         </div>
