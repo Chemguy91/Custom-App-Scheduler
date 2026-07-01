@@ -46,8 +46,9 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [defaultMax, setDefaultMax]     = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [loading, setLoading]           = useState(true)
-  const [showMyOnly, setShowMyOnly]         = useState(false)
+  const [showMyOnly, setShowMyOnly]               = useState(false)
   const [applicatorViewAll, setApplicatorViewAll] = useState(false)
+  const [viewerSalesmanFilter, setViewerSalesmanFilter] = useState<string | null>(null)
 
   // Drag & drop state
   const [draggedAppt, setDraggedAppt]   = useState<Appointment | null>(null)
@@ -64,6 +65,19 @@ export default function CalendarView({ profile }: { profile: Profile }) {
 
   // The truck assigned to this applicator (used to filter their jobs)
   const myTruck = isApplicator ? trucks.find(t => t.applicator_id === profile.id) ?? null : null
+
+  // Unique salespeople derived from appointments — used by viewer filter (excludes "Test")
+  const viewerSalespeople = isViewer
+    ? Array.from(
+        new Map(
+          appointments
+            .filter(a => a.salesman_id && a.salesman_name && a.salesman_name.toLowerCase() !== 'test')
+            .map(a => [a.salesman_id!, a.salesman_name!] as [string, string])
+        ).entries()
+      )
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    : []
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -88,7 +102,15 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes, daysOffRes] =
       await Promise.all(queries) as Awaited<ReturnType<typeof supabase.from>>[]
 
-    if ((apptRes as { data: unknown[] | null }).data)      setAppointments((apptRes as { data: Appointment[] }).data!)
+    if ((apptRes as { data: unknown[] | null }).data) {
+      const appts = (apptRes as { data: Appointment[] }).data!
+      // Viewers never see the "Test" salesman's jobs
+      setAppointments(
+        profile.role === 'viewer'
+          ? appts.filter(a => (a.salesman_name ?? '').toLowerCase() !== 'test')
+          : appts
+      )
+    }
     if ((capRes as { data: unknown[] | null }).data)       setCapacities((capRes as { data: DailyCapacity[] }).data!)
     if ((rulesRes as { data: unknown[] | null }).data)     setCapacityRules((rulesRes as { data: CapacityRule[] }).data!)
     if ((trucksRes as { data: unknown[] | null }).data)    setTrucks((trucksRes as { data: Truck[] }).data!)
@@ -280,8 +302,42 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       {isViewer && (
-        <div className="mb-4 bg-gray-100 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-500 text-center">
-          You have view-only access to this calendar.
+        <div className="mb-4 space-y-3">
+          <div className="bg-gray-100 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-500 text-center">
+            You have view-only access to this calendar.
+          </div>
+          {/* Salesman filter */}
+          <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+            <p className="text-xs font-medium text-gray-400 mb-2">Filter by salesman</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setViewerSalesmanFilter(null)}
+                className={`text-sm px-3 py-1 rounded-lg font-medium transition-colors border ${
+                  viewerSalesmanFilter === null
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                All
+              </button>
+              {viewerSalespeople.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setViewerSalesmanFilter(prev => prev === s.id ? null : s.id)}
+                  className={`text-sm px-3 py-1 rounded-lg font-medium transition-colors border ${
+                    viewerSalesmanFilter === s.id
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {s.name}
+                </button>
+              ))}
+              {viewerSalespeople.length === 0 && (
+                <span className="text-sm text-gray-400 italic">No jobs scheduled this month</span>
+              )}
+            </div>
+          </div>
         </div>
       )}
       {isApplicator && (
@@ -386,9 +442,11 @@ export default function CalendarView({ profile }: { profile: Profile }) {
               ? (applicatorViewAll
                   ? dayAppts
                   : dayAppts.filter(a => myTruck ? a.truck_id === myTruck.id : false))
-              : (isSalesManager && showMyOnly)
-                ? dayAppts.filter(a => a.salesman_id === profile.id)
-                : dayAppts
+              : isViewer && viewerSalesmanFilter
+                ? dayAppts.filter(a => a.salesman_id === viewerSalesmanFilter)
+                : (isSalesManager && showMyOnly)
+                  ? dayAppts.filter(a => a.salesman_id === profile.id)
+                  : dayAppts
             const myDayOff  = getMyDayOff(dateStr)
             const blackout  = blackoutDays.find(b => b.date === dateStr) ?? null
             const { max, isWeekendBlocked } = getDateCapacity(dateStr)
