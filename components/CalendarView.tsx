@@ -239,6 +239,17 @@ export default function CalendarView({ profile }: { profile: Profile }) {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Re-fetch whenever days_off changes (deletions, approvals, rejections)
+  useEffect(() => {
+    const channel = supabase
+      .channel('calendar_days_off_watch')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'days_off' }, () => {
+        fetchData()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, fetchData])
+
   // Sync currentMonth to weekStart when week view crosses a month boundary
   useEffect(() => {
     if (viewMode === 'week' && format(weekStart, 'yyyy-MM') !== format(currentMonth, 'yyyy-MM')) {
