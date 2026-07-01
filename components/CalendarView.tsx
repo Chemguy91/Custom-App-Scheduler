@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from 'react'
 import {
   startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek,
   format, isSameMonth, isToday, isBefore, startOfDay,
-  parseISO, addMonths, subMonths, getDay,
+  parseISO, addMonths, subMonths, addWeeks, subWeeks, getDay,
 } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { Appointment, BlackoutDay, CapacityRule, DailyCapacity, DayOff, Profile, Truck } from '@/lib/types'
@@ -163,6 +163,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [applicatorViewAll, setApplicatorViewAll] = useState(false)
   const [viewerSalesmanFilter, setViewerSalesmanFilter] = useState<string | null>(null)
   const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
+  const [viewMode, setViewMode] = useState<'month' | 'week' | 'list'>('month')
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }))
 
   // Drag & drop state
   const [draggedAppt, setDraggedAppt]   = useState<Appointment | null>(null)
@@ -237,11 +239,19 @@ export default function CalendarView({ profile }: { profile: Profile }) {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Sync currentMonth to weekStart when week view crosses a month boundary
+  useEffect(() => {
+    if (viewMode === 'week' && format(weekStart, 'yyyy-MM') !== format(currentMonth, 'yyyy-MM')) {
+      setCurrentMonth(new Date(weekStart))
+    }
+  }, [weekStart, viewMode])
+
   const monthStart = startOfMonth(currentMonth)
   const monthEnd   = endOfMonth(currentMonth)
   const gridStart  = startOfWeek(monthStart)
   const gridEnd    = endOfWeek(monthEnd)
   const days       = eachDayOfInterval({ start: gridStart, end: gridEnd })
+  const weekDays   = eachDayOfInterval({ start: weekStart, end: endOfWeek(weekStart, { weekStartsOn: 0 }) })
 
   function getAppointments(dateStr: string) {
     return appointments.filter(a => a.date === dateStr)
@@ -470,81 +480,88 @@ export default function CalendarView({ profile }: { profile: Profile }) {
         </div>
       )}
 
-      {/* Month navigation */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <h2 className="text-xl font-bold text-gray-900">{format(currentMonth, 'MMMM yyyy')}</h2>
+      {/* Navigation */}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        {/* Title */}
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+          {viewMode === 'week'
+            ? `${format(weekStart, 'MMM d')} – ${format(endOfWeek(weekStart, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
+            : format(currentMonth, 'MMMM yyyy')}
+        </h2>
+
         <div className="flex items-center gap-2 flex-wrap">
-          {/* View toggle — sales managers */}
+          {/* My jobs / All jobs toggle — sales managers */}
           {isSalesManager && (
-            <div className="flex items-center bg-gray-100 rounded-lg p-0.5 text-sm">
-              <button
-                onClick={() => setShowMyOnly(false)}
-                className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
-                  !showMyOnly ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                All jobs
-              </button>
-              <button
-                onClick={() => setShowMyOnly(true)}
-                className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
-                  showMyOnly ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                My jobs
-              </button>
+            <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5 text-sm">
+              <button onClick={() => setShowMyOnly(false)} className={`px-3 py-1.5 rounded-md font-medium transition-colors ${!showMyOnly ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>All jobs</button>
+              <button onClick={() => setShowMyOnly(true)}  className={`px-3 py-1.5 rounded-md font-medium transition-colors ${showMyOnly  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>My jobs</button>
             </div>
           )}
 
-          {/* View toggle — applicators */}
+          {/* My jobs / All jobs toggle — applicators */}
           {isApplicator && (
-            <div className="flex items-center bg-gray-100 rounded-lg p-0.5 text-sm">
-              <button
-                onClick={() => setApplicatorViewAll(false)}
-                className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
-                  !applicatorViewAll ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                My jobs
-              </button>
-              <button
-                onClick={() => setApplicatorViewAll(true)}
-                className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
-                  applicatorViewAll ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                All jobs
-              </button>
+            <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5 text-sm">
+              <button onClick={() => setApplicatorViewAll(false)} className={`px-3 py-1.5 rounded-md font-medium transition-colors ${!applicatorViewAll ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>My jobs</button>
+              <button onClick={() => setApplicatorViewAll(true)}  className={`px-3 py-1.5 rounded-md font-medium transition-colors ${applicatorViewAll  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>All jobs</button>
             </div>
           )}
-          <button onClick={() => setCurrentMonth(m => subMonths(m, 1))} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
-            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+          {/* View mode toggle — all users */}
+          <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5 text-sm">
+            {(['month', 'week', 'list'] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => {
+                  setViewMode(mode)
+                  if (mode === 'week') setWeekStart(startOfWeek(currentMonth, { weekStartsOn: 0 }))
+                }}
+                className={`px-3 py-1.5 rounded-md font-medium capitalize transition-colors ${
+                  viewMode === mode ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          {/* Prev / Today / Next */}
+          <button
+            onClick={() => viewMode === 'week' ? setWeekStart(w => subWeeks(w, 1)) : setCurrentMonth(m => subMonths(m, 1))}
+            className="p-2 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <svg className="w-4 h-4 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <button onClick={() => setCurrentMonth(new Date())} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600">
+          <button
+            onClick={() => { const t = new Date(); setCurrentMonth(t); setWeekStart(startOfWeek(t, { weekStartsOn: 0 })) }}
+            className="px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-600 dark:text-gray-300"
+          >
             Today
           </button>
-          <button onClick={() => setCurrentMonth(m => addMonths(m, 1))} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
-            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button
+            onClick={() => viewMode === 'week' ? setWeekStart(w => addWeeks(w, 1)) : setCurrentMonth(m => addMonths(m, 1))}
+            className="p-2 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <svg className="w-4 h-4 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
         </div>
       </div>
 
-      {/* Day headers */}
+      {/* Loading */}
+      {loading && <div className="h-96 flex items-center justify-center text-gray-400">Loading calendar…</div>}
+
+      {/* ── MONTH VIEW ── */}
+      {!loading && viewMode === 'month' && (
+        <>
       <div className="grid grid-cols-7 mb-1">
         {DAYS.map(d => (
           <div key={d} className="text-center text-xs font-medium text-gray-400 py-2">{d}</div>
         ))}
       </div>
-
-      {/* Calendar grid */}
-      {loading ? (
-        <div className="h-96 flex items-center justify-center text-gray-400">Loading calendar…</div>
-      ) : (
-        <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden border border-gray-200">
+      <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
           {days.map(day => {
             const dateStr    = format(day, 'yyyy-MM-dd')
             const inMonth    = isSameMonth(day, currentMonth)
@@ -592,11 +609,19 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   ${isDragTarget ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''}
                 `}
               >
-                <span className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
-                  today ? 'bg-blue-600 text-white' : isPast ? 'cal-past-num' : 'text-gray-900'
-                }`}>
-                  {format(day, 'd')}
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
+                    today ? 'bg-blue-600 text-white' : isPast ? 'cal-past-num' : 'text-gray-900'
+                  }`}>
+                    {format(day, 'd')}
+                  </span>
+                  {/* Job count badge — visible to all users */}
+                  {inMonth && visibleAppts.length > 0 && (
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                      {visibleAppts.length}
+                    </span>
+                  )}
+                </div>
 
                 {/* Blackout / holiday label */}
                 {blackout && inMonth && !isApplicator && (
@@ -677,7 +702,170 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             )
           })}
         </div>
+        </>
       )}
+
+      {/* ── WEEK VIEW ── */}
+      {!loading && viewMode === 'week' && (
+        <div className="grid grid-cols-7 gap-2">
+          {weekDays.map(day => {
+            const dateStr = format(day, 'yyyy-MM-dd')
+            const today   = isToday(day)
+            const isPast  = isBefore(day, startOfDay(new Date()))
+            const blackout = blackoutDays.find(b => b.date === dateStr) ?? null
+            const dayAppts = getAppointments(dateStr)
+            const visibleAppts = isApplicator
+              ? (applicatorViewAll ? dayAppts : dayAppts.filter(a => myTruck ? a.truck_id === myTruck.id : false))
+              : isViewer && viewerSalesmanFilter
+                ? dayAppts.filter(a => a.salesman_id === viewerSalesmanFilter)
+                : (isSalesManager && showMyOnly)
+                  ? dayAppts.filter(a => a.salesman_id === profile.id)
+                  : dayAppts
+            const jobCount = visibleAppts.length
+
+            return (
+              <div
+                key={dateStr}
+                className={`rounded-xl border p-2 min-h-[140px] flex flex-col gap-1 transition-colors
+                  ${today ? 'border-blue-400 dark:border-blue-500' : 'border-gray-200 dark:border-gray-700'}
+                  ${blackout ? 'cal-blackout' : isPast ? 'cal-past' : 'cal-future'}
+                  ${!isViewer && !blackout ? 'cursor-pointer' : ''}
+                `}
+                onClick={() => !isViewer && !blackout ? handleDayClick(dateStr) : undefined}
+              >
+                {/* Day header */}
+                <div className="text-center mb-1">
+                  <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">{format(day, 'EEE')}</p>
+                  <span className={`text-base font-bold w-8 h-8 flex items-center justify-center rounded-full mx-auto ${
+                    today ? 'bg-blue-600 text-white' : isPast ? 'cal-past-num' : 'text-gray-900 dark:text-white'
+                  }`}>
+                    {format(day, 'd')}
+                  </span>
+                  {jobCount > 0 && (
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      {jobCount} job{jobCount !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {/* Appointment chips */}
+                <div className="flex-1 space-y-1">
+                  {blackout && (
+                    <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700 block truncate">
+                      {blackout.reason || 'Blocked'}
+                    </span>
+                  )}
+                  {visibleAppts.map(a => {
+                    const chipClass = getProductChipClass(a)
+                    return (
+                      <div
+                        key={a.id}
+                        onClick={e => { e.stopPropagation(); if (isApplicator) setDetailAppt(a) }}
+                        className={`text-xs rounded px-1.5 py-1 ${chipClass} ${isApplicator ? 'cursor-pointer hover:opacity-80' : ''}`}
+                      >
+                        <p className="font-medium truncate">{a.customer_name}</p>
+                        {a.truck_name && <p className="opacity-70 truncate">{a.truck_name}</p>}
+                        {(a.products ?? []).length > 0 && (
+                          <p className="opacity-60 truncate">{a.products[0].product}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── LIST VIEW ── */}
+      {!loading && viewMode === 'list' && (() => {
+        const listDays = days
+          .filter(d => isSameMonth(d, currentMonth))
+          .map(d => {
+            const dateStr  = format(d, 'yyyy-MM-dd')
+            const dayAppts = getAppointments(dateStr)
+            const visible  = isApplicator
+              ? (applicatorViewAll ? dayAppts : dayAppts.filter(a => myTruck ? a.truck_id === myTruck.id : false))
+              : isViewer && viewerSalesmanFilter
+                ? dayAppts.filter(a => a.salesman_id === viewerSalesmanFilter)
+                : (isSalesManager && showMyOnly)
+                  ? dayAppts.filter(a => a.salesman_id === profile.id)
+                  : dayAppts
+            return { date: d, dateStr, appts: visible }
+          })
+          .filter(d => d.appts.length > 0)
+
+        if (listDays.length === 0) {
+          return (
+            <div className="text-center py-16 text-gray-400 dark:text-gray-600">
+              No jobs scheduled this month.
+            </div>
+          )
+        }
+
+        return (
+          <div className="space-y-4">
+            {listDays.map(({ date, dateStr, appts }) => {
+              const blackout = blackoutDays.find(b => b.date === dateStr)
+              const today    = isToday(date)
+              return (
+                <div key={dateStr} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                  {/* Date header */}
+                  <div
+                    className={`px-4 py-2.5 flex items-center justify-between border-b border-gray-100 dark:border-gray-700 ${
+                      today ? 'bg-blue-50 dark:bg-blue-950' : 'bg-gray-50 dark:bg-gray-800'
+                    }`}
+                    onClick={() => !isViewer && !blackout ? handleDayClick(dateStr) : undefined}
+                  >
+                    <div className="flex items-center gap-2">
+                      <h3 className={`font-semibold ${today ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>
+                        {format(date, 'EEEE, MMMM d')}
+                      </h3>
+                      {today && <span className="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-full font-medium">Today</span>}
+                      {blackout && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">{blackout.reason || 'Blocked'}</span>}
+                    </div>
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      {appts.length} job{appts.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  {/* Job rows */}
+                  <ul className="divide-y divide-gray-50 dark:divide-gray-800">
+                    {appts.map(a => {
+                      const chipClass = getProductChipClass(a)
+                      const isDisinfect = a.job_type === 'stg_disinfect'
+                      return (
+                        <li
+                          key={a.id}
+                          className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                          onClick={() => isApplicator ? setDetailAppt(a) : handleDayClick(dateStr)}
+                        >
+                          <span className={`text-xs px-2 py-1 rounded font-medium flex-shrink-0 mt-0.5 ${chipClass}`}>
+                            {isDisinfect ? 'Disinfect' : 'App'}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{a.customer_name}</p>
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                              {a.truck_name && <p className="text-xs text-gray-500 dark:text-gray-400">{a.truck_name}</p>}
+                              {a.salesman_name && <p className="text-xs text-gray-400 dark:text-gray-500">{a.salesman_name}</p>}
+                              {!isDisinfect && (a.products ?? []).length > 0 && (
+                                <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{a.products.map(p => p.product).join(', ')}</p>
+                              )}
+                              {a.storage_name && <p className="text-xs text-gray-400 dark:text-gray-500">{a.storage_name}</p>}
+                            </div>
+                            {a.notes && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic truncate">{a.notes}</p>}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
 
       {/* Legend */}
       <div className="mt-5 space-y-3">
