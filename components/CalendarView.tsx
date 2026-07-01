@@ -38,11 +38,16 @@ function resolveCapacity(
   )
   const activeTrucks = activeTruckList.length
 
-  // Only deduct days off where that applicator's truck is active on this date
+  // Deduct approved days off where the applicator has an active truck on this date.
+  // Check by truck_id if stored, otherwise fall back to matching by applicator_id.
   const approvedDaysOff = daysOff.filter(d => {
     if (d.date !== dateStr || d.status !== 'approved') return false
-    if (!d.truck_id) return false
-    return activeTruckList.some(t => t.id === d.truck_id)
+    if (d.truck_id) {
+      // Day off has a specific truck — deduct only if that truck is active
+      return activeTruckList.some(t => t.id === d.truck_id)
+    }
+    // No truck_id on the record — deduct if the applicator owns any active truck
+    return activeTruckList.some(t => t.applicator_id === d.applicator_id)
   }).length
 
   const truckCapacity = Math.max(0, activeTrucks - approvedDaysOff)
@@ -151,13 +156,19 @@ export default function CalendarView({ profile }: { profile: Profile }) {
 
   function getAvailableTrucks(dateStr: string): Truck[] {
     const active = getTrucksForDate(dateStr)
-    const dayOffTruckIds = daysOff
-      .filter(d => d.date === dateStr && d.status === 'approved' && d.truck_id)
-      .map(d => d.truck_id!)
+    const approvedOff = daysOff.filter(d => d.date === dateStr && d.status === 'approved')
     const assignedTruckIds = getAppointments(dateStr)
       .filter(a => a.status !== 'rejected' && a.truck_id)
       .map(a => a.truck_id!)
-    return active.filter(t => !dayOffTruckIds.includes(t.id) && !assignedTruckIds.includes(t.id))
+    return active.filter(t => {
+      // Remove if already assigned to a job
+      if (assignedTruckIds.includes(t.id)) return false
+      // Remove if the truck itself is on day off
+      if (approvedOff.some(d => d.truck_id === t.id)) return false
+      // Remove if the assigned applicator has a day off (even without truck_id on the record)
+      if (t.applicator_id && approvedOff.some(d => d.applicator_id === t.applicator_id)) return false
+      return true
+    })
   }
 
   const selectedDateAppointments = selectedDate ? getAppointments(selectedDate) : []
