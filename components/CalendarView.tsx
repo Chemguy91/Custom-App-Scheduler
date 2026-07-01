@@ -29,12 +29,9 @@ function resolveCapacity(
   const dayOfWeek = getDay(date)
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
 
-  // 1. Exact date override
   const override = dailyCapacities.find(c => c.date === dateStr)
   if (override) return { max: override.max_trucks, isWeekendBlocked: false }
 
-  // 2. Truck-based capacity
-  //    Active trucks = trucks whose availability window covers this date
   const activeTrucks = trucks.filter(t =>
     (!t.active_from || t.active_from <= dateStr) &&
     (!t.active_to   || t.active_to   >= dateStr)
@@ -43,7 +40,6 @@ function resolveCapacity(
   const approvedDaysOff = daysOff.filter(d => d.date === dateStr && d.status === 'approved').length
   const truckCapacity = Math.max(0, activeTrucks - approvedDaysOff)
 
-  // 3. Capacity rules (most recently created owns the date range)
   const coveringRules = capacityRules
     .filter(r => r.start_date <= dateStr && r.end_date >= dateStr)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -53,19 +49,16 @@ function resolveCapacity(
     if (!owningRule.days_of_week.includes(dayOfWeek)) {
       return { max: 0, isWeekendBlocked: true }
     }
-    // Use min of rule and truck capacity (if trucks configured)
     const ruleMax = owningRule.max_applications
     const effectiveMax = activeTrucks > 0 ? Math.min(ruleMax, truckCapacity) : ruleMax
     return { max: effectiveMax, isWeekendBlocked: false }
   }
 
-  // 4. No rule — use trucks if configured
   if (activeTrucks > 0) {
     if (truckCapacity === 0 && isWeekend) return { max: 0, isWeekendBlocked: true }
     return { max: truckCapacity, isWeekendBlocked: false }
   }
 
-  // 5. Pure fallback
   if (isWeekend) return { max: 0, isWeekendBlocked: true }
   return { max: defaultMax, isWeekendBlocked: false }
 }
@@ -73,13 +66,19 @@ function resolveCapacity(
 export default function CalendarView({ profile }: { profile: Profile }) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [appointments, setAppointments] = useState<Appointment[]>([])
-  const [capacities, setCapacities] = useState<DailyCapacity[]>([])
+  const [capacities, setCapacities]     = useState<DailyCapacity[]>([])
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
-  const [trucks, setTrucks] = useState<Truck[]>([])
-  const [daysOff, setDaysOff] = useState<DayOff[]>([])
-  const [defaultMax, setDefaultMax] = useState(5)
+  const [trucks, setTrucks]             = useState<Truck[]>([])
+  const [daysOff, setDaysOff]           = useState<DayOff[]>([])
+  const [defaultMax, setDefaultMax]     = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading]           = useState(true)
+
+  // Drag & drop state
+  const [draggedAppt, setDraggedAppt]   = useState<Appointment | null>(null)
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null)
+  const [dragError, setDragError]       = useState<string | null>(null)
+
   const supabase = createClient()
 
   const isViewer       = profile.role === 'viewer'
@@ -101,7 +100,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
     ]
 
-    // Applicators only fetch their own days off; others fetch all for the month
     if (isApplicator) {
       queries.push(supabase.from('days_off').select('*').eq('applicator_id', profile.id))
     } else {
@@ -137,12 +135,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     return daysOff.find(d => d.date === dateStr && d.applicator_id === profile.id) ?? null
   }
 
-  const selectedDateAppointments = selectedDate ? getAppointments(selectedDate) : []
-  const selectedDayCapacity = selectedDate
-    ? resolveCapacity(parseISO(selectedDate), selectedDate, capacities, capacityRules, trucks, daysOff, defaultMax)
-    : { max: defaultMax, isWeekendBlocked: false }
-
-  // All trucks active on a given date
   function getTrucksForDate(dateStr: string): Truck[] {
     return trucks.filter(t =>
       (!t.active_from || t.active_from <= dateStr) &&
@@ -150,7 +142,6 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     )
   }
 
-  // Trucks not yet booked and not on approved day off — for auto-assignment
   function getAvailableTrucks(dateStr: string): Truck[] {
     const active = getTrucksForDate(dateStr)
     const dayOffTruckIds = daysOff
@@ -162,14 +153,87 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     return active.filter(t => !dayOffTruckIds.includes(t.id) && !assignedTruckIds.includes(t.id))
   }
 
+  const selectedDateAppointments = selectedDate ? getAppointments(selectedDate) : []
+  const selectedDayCapacity = selectedDate
+    ? resolveCapacity(parseISO(selectedDate), selectedDate, capacities, capacityRules, trucks, daysOff, defaultMax)
+    : { max: defaultMax, isWeekendBlocked: false }
+
   function handleDayClick(dateStr: string) {
-    if (isViewer) return
+    if (isViewer || draggedAppt) return
     setSelectedDate(dateStr)
+  }
+
+  // ── Drag & Drop ─────────────────────────────────────────────────────────────
+
+  function canDrag(appt: Appointment): boolean {
+    return isAdmin || appt.salesman_id === profile.id
+  }
+
+  function handleDragStart(e: React.DragEvent, appt: Appointment) {
+    e.stopPropagation()
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', appt.id)
+    setDraggedAppt(appt)
+    setDragError(null)
+  }
+
+  function handleDragEnd() {
+    setDraggedAppt(null)
+    setDragOverDate(null)
+  }
+
+  function handleDragOver(e: React.DragEvent, dateStr: string) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverDate(dateStr)
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    // Only clear if leaving the cell entirely (not just moving between children)
+    if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+      setDragOverDate(null)
+    }
+  }
+
+  async function handleDrop(e: React.DragEvent, targetDate: string) {
+    e.preventDefault()
+    setDragOverDate(null)
+
+    if (!draggedAppt) return
+    if (draggedAppt.date === targetDate) { setDraggedAppt(null); return }
+    if (!canDrag(draggedAppt)) { setDraggedAppt(null); return }
+
+    // Check capacity on target date (exclude the appointment being moved)
+    const targetAppts = getAppointments(targetDate).filter(a => a.id !== draggedAppt.id && a.status !== 'rejected')
+    const { max, isWeekendBlocked } = resolveCapacity(
+      parseISO(targetDate), targetDate, capacities, capacityRules, trucks, daysOff, defaultMax
+    )
+
+    if (isWeekendBlocked && max === 0 && !isAdmin) {
+      setDragError('That day requires admin approval.')
+      setDraggedAppt(null)
+      setTimeout(() => setDragError(null), 3000)
+      return
+    }
+
+    if (targetAppts.length >= max && !isAdmin) {
+      setDragError(`${format(parseISO(targetDate), 'MMM d')} is fully booked.`)
+      setDraggedAppt(null)
+      setTimeout(() => setDragError(null), 3000)
+      return
+    }
+
+    const { error } = await supabase
+      .from('appointments')
+      .update({ date: targetDate, updated_at: new Date().toISOString() })
+      .eq('id', draggedAppt.id)
+
+    setDraggedAppt(null)
+    if (!error) fetchData()
   }
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      {/* Role banner for non-schedulers */}
       {isViewer && (
         <div className="mb-4 bg-gray-100 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-500 text-center">
           You have view-only access to this calendar.
@@ -178,6 +242,16 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       {isApplicator && (
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 text-sm text-blue-700 text-center">
           Click any day to request a day off.
+        </div>
+      )}
+      {dragError && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-sm text-red-700 text-center">
+          {dragError}
+        </div>
+      )}
+      {canSchedule && !isApplicator && (
+        <div className="mb-4 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-xs text-gray-400 text-center">
+          Drag an appointment to move it to a different day
         </div>
       )}
 
@@ -223,18 +297,22 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             const count    = dayAppts.length
             const full     = count >= max
             const blocked  = isWeekendBlocked && count === 0
+            const isDragTarget = dragOverDate === dateStr && draggedAppt !== null
 
             return (
-              <button
+              <div
                 key={dateStr}
                 onClick={() => handleDayClick(dateStr)}
-                disabled={isViewer}
+                onDragOver={canSchedule ? e => handleDragOver(e, dateStr) : undefined}
+                onDragLeave={canSchedule ? handleDragLeave : undefined}
+                onDrop={canSchedule ? e => handleDrop(e, dateStr) : undefined}
                 className={`
                   bg-white min-h-[80px] p-2 text-left transition-colors
                   ${!inMonth ? 'opacity-40' : ''}
                   ${today ? 'ring-2 ring-inset ring-blue-500' : ''}
                   ${blocked ? 'bg-gray-50' : ''}
-                  ${!isViewer ? 'hover:bg-blue-50' : 'cursor-default'}
+                  ${!isViewer ? 'cursor-pointer hover:bg-blue-50' : 'cursor-default'}
+                  ${isDragTarget ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''}
                 `}
               >
                 <span className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
@@ -243,7 +321,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   {format(day, 'd')}
                 </span>
 
-                {/* Applicator: show their day off status */}
+                {/* Applicator: day off status */}
                 {isApplicator && myDayOff && inMonth && (
                   <div className="mt-1">
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
@@ -257,7 +335,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   </div>
                 )}
 
-                {/* Capacity pill (non-applicator) */}
+                {/* Capacity pill */}
                 {!isApplicator && !blocked && max > 0 && inMonth && (
                   <div className="mt-1">
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
@@ -275,23 +353,34 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   </div>
                 )}
 
-                {/* Appointment names (non-applicator) */}
+                {/* Appointment chips — draggable */}
                 {!isApplicator && (
                   <div className="mt-1 space-y-0.5">
-                    {dayAppts.slice(0, 2).map(a => (
-                      <div key={a.id} className="text-xs truncate text-gray-600 bg-gray-100 rounded px-1 py-0.5">
-                        <span className="font-medium">{a.customer_name}</span>
-                        {a.truck_name && (
-                          <span className="text-gray-400 ml-1">· {a.truck_name}</span>
-                        )}
-                      </div>
-                    ))}
+                    {dayAppts.slice(0, 2).map(a => {
+                      const draggable = canDrag(a) && canSchedule
+                      return (
+                        <div
+                          key={a.id}
+                          draggable={draggable}
+                          onDragStart={draggable ? e => handleDragStart(e, a) : undefined}
+                          onDragEnd={draggable ? handleDragEnd : undefined}
+                          onClick={e => e.stopPropagation()}
+                          className={`text-xs truncate text-gray-600 bg-gray-100 rounded px-1 py-0.5 select-none
+                            ${draggable ? 'cursor-grab active:cursor-grabbing hover:bg-blue-100 hover:text-blue-700' : ''}
+                            ${draggedAppt?.id === a.id ? 'opacity-40' : ''}
+                          `}
+                        >
+                          <span className="font-medium">{a.customer_name}</span>
+                          {a.truck_name && <span className="text-gray-400 ml-1">· {a.truck_name}</span>}
+                        </div>
+                      )
+                    })}
                     {dayAppts.length > 2 && (
                       <div className="text-xs text-gray-400">+{dayAppts.length - 2} more</div>
                     )}
                   </div>
                 )}
-              </button>
+              </div>
             )
           })}
         </div>
