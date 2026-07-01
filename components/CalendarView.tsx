@@ -13,6 +13,23 @@ import DayOffModal from './DayOffModal'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+/** Returns the CSS class name that colours an appointment chip by its product. */
+function getProductChipClass(a: { job_type: string; products?: { product: string; rate: string }[] }): string {
+  if (a.job_type === 'stg_disinfect') return 'chip-disinfect'
+  for (const entry of (a.products ?? [])) {
+    const n = (entry.product ?? '').toLowerCase()
+    if (n.includes('smart block'))                         return 'chip-purple'
+    if (n.includes('1,4') || n.includes('zap'))           return 'chip-yellow'
+    if (n.includes('dmn'))                                 return 'chip-brown'
+    if (n.includes('storox') || n.includes('perox'))      return 'chip-green'
+    if (n.includes('purogene'))                            return 'chip-blue'
+    if (n.includes('cipc'))                                return 'chip-orange'
+    if (n.includes('amplify'))                             return 'chip-white'
+    if (n.includes('fresh pack'))                          return 'chip-pink'
+  }
+  return 'chip-default'
+}
+
 interface DayCapacityResult {
   max: number
   isWeekendBlocked: boolean
@@ -416,6 +433,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                     {visibleAppts.slice(0, 3).map(a => {
                       const draggable = canDrag(a) && canSchedule
                       const isDisinfect = a.job_type === 'stg_disinfect'
+                      const chipClass = getProductChipClass(a)
                       return (
                         <div
                           key={a.id}
@@ -423,15 +441,14 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                           onDragStart={draggable ? e => handleDragStart(e, a) : undefined}
                           onDragEnd={draggable ? handleDragEnd : undefined}
                           onClick={e => e.stopPropagation()}
-                          className={`text-xs truncate rounded px-1 py-0.5 select-none
-                            ${isDisinfect ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}
+                          className={`text-xs truncate rounded px-1 py-0.5 select-none ${chipClass}
                             ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}
                             ${draggedAppt?.id === a.id ? 'opacity-40' : ''}
                           `}
                         >
                           <span className="font-medium">{a.customer_name}</span>
-                          {!isDisinfect && a.truck_name && <span className="opacity-60 ml-1">· {a.truck_name}</span>}
-                          {isDisinfect && <span className="opacity-60 ml-1">· Disinfect</span>}
+                          {!isDisinfect && a.truck_name && <span className="opacity-70 ml-1">· {a.truck_name}</span>}
+                          {isDisinfect && <span className="opacity-70 ml-1">· Disinfect</span>}
                           {(a.slot_count ?? (isDisinfect ? 0 : 1)) > 1 && (
                             <span className="opacity-75 ml-1">×{a.slot_count}</span>
                           )}

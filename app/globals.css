@@ -2,6 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Appointment chip product colors ─────────────────────────────────────── */
+
+/* Light mode */
+.chip-purple   { background-color: #ede9fe; color: #6d28d9; }   /* Smart Block       */
+.chip-yellow   { background-color: #fef9c3; color: #854d0e; }   /* 1,4 Zap           */
+.chip-brown    { background-color: #fef0e0; color: #7c2d12; }   /* DMN               */
+.chip-green    { background-color: #dcfce7; color: #15803d; }   /* Storox / Perox AG */
+.chip-blue     { background-color: #dbeafe; color: #1d4ed8; }   /* Purogene          */
+.chip-orange   { background-color: #ffedd5; color: #c2410c; }   /* CIPC              */
+.chip-white    { background-color: #ffffff; color: #374151; border: 1px solid #d1d5db; } /* Amplify */
+.chip-pink     { background-color: #fce7f3; color: #be185d; }   /* Fresh Pack 100    */
+.chip-disinfect { background-color: #14532d; color: #bbf7d0; }  /* Stg Disinfect     */
+.chip-default  { background-color: #f3f4f6; color: #4b5563; }   /* Unknown           */
+
+/* Dark mode */
+.dark .chip-purple   { background-color: #3b0764; color: #d8b4fe; }
+.dark .chip-yellow   { background-color: #422006; color: #fde68a; }
+.dark .chip-brown    { background-color: #2d1500; color: #fbbf24; }
+.dark .chip-green    { background-color: #052e16; color: #4ade80; }
+.dark .chip-blue     { background-color: #0c1a3a; color: #93c5fd; }
+.dark .chip-orange   { background-color: #431407; color: #fb923c; }
+.dark .chip-white    { background-color: #1e293b; color: #f1f5f9; border: 1px solid #334155; }
+.dark .chip-pink     { background-color: #500724; color: #f9a8d4; }
+.dark .chip-disinfect { background-color: #052e16; color: #bbf7d0; }
+.dark .chip-default  { background-color: #222222; color: #9ca3af; }
+
 /* ─── Calendar past / future cells ────────────────────────────────────────── */
 
 /* Light mode */
