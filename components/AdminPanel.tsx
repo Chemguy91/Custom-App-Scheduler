@@ -115,6 +115,38 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     fetchData()
   }
 
+  // Retroactively create the calendar appointment for an already-approved request
+  // whose insert previously failed (e.g. before the RLS fix was deployed).
+  async function fixMissingAppointment(req: ApprovalRequest) {
+    const supabaseClient = createClient()
+    const { data: appt, error } = await supabaseClient
+      .from('appointments')
+      .insert({
+        date:             req.date,
+        salesman_id:      req.salesman_id,
+        job_type:         req.job_type ?? 'application',
+        customer_name:    req.customer_name,
+        storage_name:     req.storage_name ?? null,
+        storage_capacity: req.storage_capacity ?? null,
+        notes:            req.notes,
+        products:         [],
+        status:           'approved',
+      })
+      .select()
+      .single()
+
+    if (!error && appt) {
+      await supabaseClient
+        .from('approval_requests')
+        .update({ appointment_id: appt.id })
+        .eq('id', req.id)
+      fetchData()
+    } else {
+      console.error('Fix failed:', error)
+      alert('Failed to add to calendar: ' + error?.message)
+    }
+  }
+
   async function deductDailySlots(
     supabaseClient: ReturnType<typeof createClient>,
     date: string,
@@ -237,7 +269,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                 <>
                   <h3 className="text-sm font-medium text-gray-500 pt-2">Previously reviewed</h3>
                   {reviewedRequests.map(req => (
-                    <RequestCard key={req.id} req={req} onAction={handleApprovalAction} readonly />
+                    <RequestCard key={req.id} req={req} onAction={handleApprovalAction} onFix={fixMissingAppointment} readonly />
                   ))}
                 </>
               )}
@@ -1179,15 +1211,19 @@ function CapacityRuleForm({
 function RequestCard({
   req,
   onAction,
+  onFix,
   readonly = false,
 }: {
   req: ApprovalRequest
   onAction: (req: ApprovalRequest, action: 'approved' | 'rejected', note?: string, deductSlots?: number) => void
+  onFix?: (req: ApprovalRequest) => void
   readonly?: boolean
 }) {
   const [note, setNote]             = useState('')
   const [deductSlots, setDeductSlots] = useState(0)
+  const [fixing, setFixing]         = useState(false)
   const isDisinfect = req.job_type === 'stg_disinfect'
+  const missingAppointment = req.status === 'approved' && !req.appointment_id
 
   return (
     <div className={`bg-white rounded-xl border p-4 ${
@@ -1277,6 +1313,24 @@ function RequestCard({
 
       {req.admin_note && (
         <p className="mt-2 text-xs text-gray-500 italic">Admin note: {req.admin_note}</p>
+      )}
+
+      {/* Repair button: approved but appointment_id is null (insert previously failed) */}
+      {missingAppointment && onFix && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-xs text-amber-600">Not on calendar yet</span>
+          <button
+            onClick={async () => {
+              setFixing(true)
+              await onFix(req)
+              setFixing(false)
+            }}
+            disabled={fixing}
+            className="text-xs bg-amber-50 border border-amber-300 text-amber-700 hover:bg-amber-100 px-2.5 py-1 rounded-lg font-medium transition-colors disabled:opacity-50"
+          >
+            {fixing ? 'Adding…' : 'Add to Calendar'}
+          </button>
+        </div>
       )}
     </div>
   )
