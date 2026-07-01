@@ -106,6 +106,7 @@ export interface CapacityRule {
   end_date: string      // 'YYYY-MM-DD'
   days_of_week: number[] // 0=Sun,1=Mon,...,6=Sat
   max_applications: number
+  truck_ids: string[] | null  // null = applies to all trucks
   created_by: string | null
   created_at: string
 }

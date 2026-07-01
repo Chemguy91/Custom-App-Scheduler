@@ -271,6 +271,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                 <CapacityRuleForm
                   adminId={profile.id}
                   supabase={supabase}
+                  trucks={trucks}
                   onSaved={fetchData}
                 />
               </div>
@@ -293,6 +294,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                               adminId={profile.id}
                               supabase={supabase}
                               existingRule={rule}
+                              trucks={trucks}
                               onSaved={() => { setEditingRuleId(null); fetchData() }}
                               onCancel={() => setEditingRuleId(null)}
                             />
@@ -326,6 +328,14 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                                 <span className="text-sm font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
                                   {rule.max_applications} application{rule.max_applications !== 1 ? 's' : ''}/day
                                 </span>
+                                {rule.truck_ids && rule.truck_ids.length > 0 && (
+                                  <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                                    {rule.truck_ids.length === 1
+                                      ? `1 truck: ${trucks.find(t => t.id === rule.truck_ids![0])?.name ?? '?'}`
+                                      : `${rule.truck_ids.length} trucks: ${rule.truck_ids.map(id => trucks.find(t => t.id === id)?.name ?? '?').join(', ')}`
+                                    }
+                                  </span>
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center gap-3 shrink-0">
@@ -867,12 +877,14 @@ function CapacityRuleForm({
   adminId,
   supabase,
   existingRule,
+  trucks,
   onSaved,
   onCancel,
 }: {
   adminId: string
   supabase: ReturnType<typeof createClient>
   existingRule?: CapacityRule
+  trucks: Truck[]
   onSaved: () => void
   onCancel?: () => void
 }) {
@@ -882,6 +894,8 @@ function CapacityRuleForm({
   const [endDate, setEndDate] = useState(existingRule?.end_date ?? '')
   const [selectedDays, setSelectedDays] = useState<number[]>(existingRule?.days_of_week ?? [...WEEKDAYS])
   const [maxApps, setMaxApps] = useState(existingRule?.max_applications ?? 2)
+  // null = all trucks; otherwise array of selected truck IDs
+  const [selectedTruckIds, setSelectedTruckIds] = useState<string[] | null>(existingRule?.truck_ids ?? null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -889,6 +903,21 @@ function CapacityRuleForm({
     setSelectedDays(prev =>
       prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
     )
+  }
+
+  function toggleTruck(id: string) {
+    if (selectedTruckIds === null) {
+      // switching from "all trucks" to specific selection — start with all checked except this one
+      setSelectedTruckIds(trucks.map(t => t.id).filter(tid => tid !== id))
+    } else if (selectedTruckIds.includes(id)) {
+      const next = selectedTruckIds.filter(tid => tid !== id)
+      // if nothing left selected, go back to "all trucks"
+      setSelectedTruckIds(next.length === 0 ? null : next)
+    } else {
+      const next = [...selectedTruckIds, id]
+      // if every truck is now checked, revert to null (all trucks)
+      setSelectedTruckIds(next.length === trucks.length ? null : next)
+    }
   }
 
   function setPreset(preset: 'weekdays' | 'weekends' | 'all') {
@@ -916,6 +945,7 @@ function CapacityRuleForm({
           end_date: endDate,
           days_of_week: selectedDays,
           max_applications: maxApps,
+          truck_ids: selectedTruckIds,
           created_at: new Date().toISOString(),
         })
         .eq('id', existingRule.id)
@@ -927,6 +957,7 @@ function CapacityRuleForm({
         end_date: endDate,
         days_of_week: selectedDays,
         max_applications: maxApps,
+        truck_ids: selectedTruckIds,
         created_by: adminId,
       })
       error = result.error
@@ -943,6 +974,7 @@ function CapacityRuleForm({
         setEndDate('')
         setSelectedDays([...WEEKDAYS])
         setMaxApps(2)
+        setSelectedTruckIds(null)
       }
       onSaved()
       setTimeout(() => setMsg(''), 2000)
@@ -1064,6 +1096,49 @@ function CapacityRuleForm({
           </div>
         </div>
       </div>
+
+      {/* Trucks */}
+      {trucks.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-medium text-gray-600">Applies to Trucks</label>
+            <button
+              type="button"
+              onClick={() => setSelectedTruckIds(null)}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              All trucks
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {trucks.map(t => {
+              const checked = selectedTruckIds === null || selectedTruckIds.includes(t.id)
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => toggleTruck(t.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    checked
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  {t.name}
+                  {t.applicator_name && (
+                    <span className={checked ? 'opacity-75' : 'opacity-50'}>· {t.applicator_name}</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          {selectedTruckIds !== null && (
+            <p className="text-xs text-amber-600 mt-1.5">
+              Rule only applies to {selectedTruckIds.length} of {trucks.length} trucks
+            </p>
+          )}
+        </div>
+      )}
 
       {msg && (
         <p className={`text-sm ${msg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>

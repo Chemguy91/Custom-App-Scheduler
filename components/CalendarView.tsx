@@ -17,64 +17,6 @@ interface DayCapacityResult {
   isWeekendBlocked: boolean
 }
 
-function resolveCapacity(
-  date: Date,
-  dateStr: string,
-  dailyCapacities: DailyCapacity[],
-  capacityRules: CapacityRule[],
-  trucks: Truck[],
-  daysOff: DayOff[],
-  defaultMax: number,
-): DayCapacityResult {
-  const dayOfWeek = getDay(date)
-  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-
-  const override = dailyCapacities.find(c => c.date === dateStr)
-  if (override) return { max: override.max_trucks, isWeekendBlocked: false }
-
-  const activeTruckList = trucks.filter(t =>
-    (!t.active_from || t.active_from <= dateStr) &&
-    (!t.active_to   || t.active_to   >= dateStr)
-  )
-  const activeTrucks = activeTruckList.length
-
-  // Deduct approved days off where the applicator has an active truck on this date.
-  // Check by truck_id if stored, otherwise fall back to matching by applicator_id.
-  const approvedDaysOff = daysOff.filter(d => {
-    if (d.date !== dateStr || d.status !== 'approved') return false
-    if (d.truck_id) {
-      // Day off has a specific truck — deduct only if that truck is active
-      return activeTruckList.some(t => t.id === d.truck_id)
-    }
-    // No truck_id on the record — deduct if the applicator owns any active truck
-    return activeTruckList.some(t => t.applicator_id === d.applicator_id)
-  }).length
-
-  const truckCapacity = Math.max(0, activeTrucks - approvedDaysOff)
-
-  const coveringRules = capacityRules
-    .filter(r => r.start_date <= dateStr && r.end_date >= dateStr)
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-
-  if (coveringRules.length > 0) {
-    const owningRule = coveringRules[0]
-    if (!owningRule.days_of_week.includes(dayOfWeek)) {
-      return { max: 0, isWeekendBlocked: true }
-    }
-    const ruleMax = owningRule.max_applications
-    const effectiveMax = activeTrucks > 0 ? Math.min(ruleMax, truckCapacity) : ruleMax
-    return { max: effectiveMax, isWeekendBlocked: false }
-  }
-
-  if (activeTrucks > 0) {
-    if (truckCapacity === 0 && isWeekend) return { max: 0, isWeekendBlocked: true }
-    return { max: truckCapacity, isWeekendBlocked: false }
-  }
-
-  if (isWeekend) return { max: 0, isWeekendBlocked: true }
-  return { max: defaultMax, isWeekendBlocked: false }
-}
-
 export default function CalendarView({ profile }: { profile: Profile }) {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -161,19 +103,70 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       .filter(a => a.status !== 'rejected' && a.truck_id)
       .map(a => a.truck_id!)
     return active.filter(t => {
-      // Remove if already assigned to a job
       if (assignedTruckIds.includes(t.id)) return false
-      // Remove if the truck itself is on day off
       if (approvedOff.some(d => d.truck_id === t.id)) return false
-      // Remove if the assigned applicator has a day off (even without truck_id on the record)
       if (t.applicator_id && approvedOff.some(d => d.applicator_id === t.applicator_id)) return false
       return true
     })
   }
 
+  // Computes the effective max slots for a date using closure over all state.
+  // This replaces the old external resolveCapacity() which had issues receiving
+  // daysOff as a parameter. Uses the same day-off filtering logic as getAvailableTrucks.
+  function getDateCapacity(dateStr: string): DayCapacityResult {
+    const date = parseISO(dateStr)
+    const dayOfWeek = getDay(date)
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+
+    // 1. Exact daily override wins
+    const override = capacities.find(c => c.date === dateStr)
+    if (override) return { max: override.max_trucks, isWeekendBlocked: false }
+
+    // 2. All trucks active on this date
+    const allActiveTrucks = getTrucksForDate(dateStr)
+
+    // 3. Find owning capacity rule (most recently created that covers this date)
+    const coveringRules = capacityRules
+      .filter(r => r.start_date <= dateStr && r.end_date >= dateStr)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+    // 4. If rule has specific truck_ids, restrict to those trucks
+    let ruleTrucks = allActiveTrucks
+    if (coveringRules.length > 0 && coveringRules[0].truck_ids?.length) {
+      ruleTrucks = allActiveTrucks.filter(t => coveringRules[0].truck_ids!.includes(t.id))
+    }
+
+    // 5. Deduct approved days off (same logic as getAvailableTrucks — this is what works)
+    const approvedOff = daysOff.filter(d => d.date === dateStr && d.status === 'approved')
+    const truckCap = ruleTrucks.filter(t => {
+      if (approvedOff.some(d => d.truck_id === t.id)) return false
+      if (t.applicator_id && approvedOff.some(d => d.applicator_id === t.applicator_id)) return false
+      return true
+    }).length
+
+    // 6. Apply rule or fallback
+    if (coveringRules.length > 0) {
+      const owningRule = coveringRules[0]
+      if (!owningRule.days_of_week.includes(dayOfWeek)) {
+        return { max: 0, isWeekendBlocked: true }
+      }
+      const ruleMax = owningRule.max_applications
+      const effectiveMax = ruleTrucks.length > 0 ? Math.min(ruleMax, truckCap) : ruleMax
+      return { max: effectiveMax, isWeekendBlocked: false }
+    }
+
+    if (allActiveTrucks.length > 0) {
+      if (isWeekend) return { max: 0, isWeekendBlocked: true }
+      return { max: truckCap, isWeekendBlocked: false }
+    }
+
+    if (isWeekend) return { max: 0, isWeekendBlocked: true }
+    return { max: defaultMax, isWeekendBlocked: false }
+  }
+
   const selectedDateAppointments = selectedDate ? getAppointments(selectedDate) : []
   const selectedDayCapacity = selectedDate
-    ? resolveCapacity(parseISO(selectedDate), selectedDate, capacities, capacityRules, trucks, daysOff, defaultMax)
+    ? getDateCapacity(selectedDate)
     : { max: defaultMax, isWeekendBlocked: false }
 
   function handleDayClick(dateStr: string) {
@@ -223,9 +216,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
 
     // Check capacity on target date (exclude the appointment being moved)
     const targetAppts = getAppointments(targetDate).filter(a => a.id !== draggedAppt.id && a.status !== 'rejected')
-    const { max, isWeekendBlocked } = resolveCapacity(
-      parseISO(targetDate), targetDate, capacities, capacityRules, trucks, daysOff, defaultMax
-    )
+    const { max, isWeekendBlocked } = getDateCapacity(targetDate)
 
     if (isWeekendBlocked && max === 0 && !isAdmin) {
       setDragError('That day requires admin approval.')
@@ -311,7 +302,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             const today    = isToday(day)
             const dayAppts = getAppointments(dateStr)
             const myDayOff = getMyDayOff(dateStr)
-            const { max, isWeekendBlocked } = resolveCapacity(day, dateStr, capacities, capacityRules, trucks, daysOff, defaultMax)
+            const { max, isWeekendBlocked } = getDateCapacity(dateStr)
             const appAppts = dayAppts.filter(a => !a.job_type || a.job_type === 'application')
             const count    = appAppts.length
             const full     = count >= max
