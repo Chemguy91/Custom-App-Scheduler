@@ -69,6 +69,12 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     const supabaseClient = createClient()
 
     if (action === 'approved') {
+      // slot_count on the appointment IS the capacity usage.
+      // We store the admin's chosen deductSlots directly on the appointment
+      // so that deleting it automatically restores capacity — no daily_capacity
+      // override needed (which would persist after deletion).
+      const slotCount = deductSlots ?? (req.job_type === 'stg_disinfect' ? 0 : 1)
+
       const { data: appt, error: apptError } = await supabaseClient
         .from('appointments')
         .insert({
@@ -81,6 +87,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
           notes:            req.notes,
           products:         [],
           status:           'approved',
+          slot_count:       slotCount,
         })
         .select()
         .single()
@@ -99,11 +106,6 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
           appointment_id: appt?.id ?? null,
         })
         .eq('id', req.id)
-
-      // Deduct N slots from that day's capacity
-      if (deductSlots && deductSlots > 0) {
-        await deductDailySlots(supabaseClient, req.date, profile.id, deductSlots)
-      }
     } else {
       await supabaseClient
         .from('approval_requests')
@@ -134,6 +136,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
         notes:            req.notes,
         products:         [],
         status:           'approved',
+        slot_count:       req.job_type === 'stg_disinfect' ? 0 : 1,
       })
       .select()
       .single()
