@@ -124,11 +124,49 @@ export default function SummaryPanel() {
     load()
   }, [year, month])
 
+  function exportCSV() {
+    const headers = ['Product', 'Date', 'Customer', 'Storage', 'Rate', 'CWT', 'Salesman']
+    const csvRows = [headers.join(',')]
+    for (const row of rows) {
+      for (const c of row.customers.sort((a, b) => a.date.localeCompare(b.date))) {
+        csvRows.push([
+          row.product,
+          c.date,
+          c.customer,
+          c.storage ?? '',
+          c.rate ?? '',
+          c.cwt ?? '',
+          c.salesman ?? '',
+        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+      }
+    }
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `summary-${year}-${String(month).padStart(2, '0')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-5">
-      <div className="mb-2">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Monthly Summary</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Applications by product</p>
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Monthly Summary</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Applications by product</p>
+        </div>
+        {!loading && rows.length > 0 && (
+          <button
+            onClick={exportCSV}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export to Excel
+          </button>
+        )}
       </div>
 
       {/* Month / Year picker */}
