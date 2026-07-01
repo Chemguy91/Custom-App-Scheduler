@@ -3,7 +3,8 @@
 import { useState, useCallback, useEffect } from 'react'
 import {
   startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek,
-  format, isSameMonth, isToday, parseISO, addMonths, subMonths, getDay,
+  format, isSameMonth, isToday, isBefore, startOfDay,
+  parseISO, addMonths, subMonths, getDay,
 } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { Appointment, BlackoutDay, CapacityRule, DailyCapacity, DayOff, Profile, Truck } from '@/lib/types'
@@ -325,6 +326,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             const dateStr    = format(day, 'yyyy-MM-dd')
             const inMonth    = isSameMonth(day, currentMonth)
             const today      = isToday(day)
+            const isPast     = inMonth && isBefore(day, startOfDay(new Date()))
             const dayAppts   = getAppointments(dateStr)
             // For chip display: optionally filter to only the current user's jobs
             const visibleAppts = (isSalesManager && showMyOnly)
@@ -350,17 +352,19 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                 onDragLeave={canSchedule ? handleDragLeave : undefined}
                 onDrop={canSchedule ? e => handleDrop(e, dateStr) : undefined}
                 className={`
-                  bg-white min-h-[80px] p-2 text-left transition-colors
-                  ${!inMonth ? 'opacity-40' : ''}
+                  min-h-[80px] p-2 text-left transition-colors
+                  ${!inMonth ? 'opacity-40 bg-white' : ''}
+                  ${inMonth && isPast && !blackout ? 'cal-past' : ''}
+                  ${inMonth && !isPast && !blackout ? 'cal-future' : ''}
                   ${today ? 'ring-2 ring-inset ring-blue-500' : ''}
                   ${blocked ? 'bg-gray-50' : ''}
                   ${blackout ? 'bg-red-50' : ''}
-                  ${!isViewer ? 'cursor-pointer hover:bg-blue-50' : 'cursor-default'}
+                  ${!isViewer ? 'cursor-pointer' : 'cursor-default'}
                   ${isDragTarget ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''}
                 `}
               >
                 <span className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
-                  today ? 'bg-blue-600 text-white' : 'text-gray-900'
+                  today ? 'bg-blue-600 text-white' : isPast ? 'cal-past-num' : 'text-gray-900'
                 }`}>
                   {format(day, 'd')}
                 </span>

@@ -2,6 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Calendar past / future cells ────────────────────────────────────────── */
+
+/* Light mode */
+.cal-past        { background-color: #f1f5f9; }   /* slate-100 — soft cool gray */
+.cal-past:hover  { background-color: #e2e8f0; }
+.cal-past-num    { color: #94a3b8; }               /* slate-400 — muted date number */
+
+.cal-future      { background-color: #ffffff; }
+.cal-future:hover { background-color: #eff6ff; }   /* blue-50 on hover */
+
+/* Dark mode */
+.dark .cal-past        { background-color: #0a0a0a; }   /* near-black, recedes */
+.dark .cal-past:hover  { background-color: #111111; }
+.dark .cal-past-num    { color: #3f3f46; }               /* very dark gray, barely there */
+
+.dark .cal-future      { background-color: #1c1c1c; }   /* noticeably lighter than past */
+.dark .cal-future:hover { background-color: #242424; }
+
 /* ─── Dark mode — Black / White / Red / Green ─────────────────────────────── */
 
 /* Page background — true black */
