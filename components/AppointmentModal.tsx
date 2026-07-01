@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Appointment, JobType, Profile, Truck } from '@/lib/types'
+import { Appointment, BlackoutDay, JobType, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
 
 // ─── Product & Rate Data ──────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ interface Props {
   appointments: Appointment[]
   maxTrucks: number
   isWeekendBlocked?: boolean
+  blackoutDay?: BlackoutDay | null
   currentProfile: Profile
   trucksForDay: Truck[]
   availableTrucks: Truck[]
@@ -78,6 +79,7 @@ export default function AppointmentModal({
   appointments,
   maxTrucks,
   isWeekendBlocked = false,
+  blackoutDay = null,
   currentProfile,
   trucksForDay,
   availableTrucks,
@@ -86,6 +88,8 @@ export default function AppointmentModal({
 }: Props) {
   const supabase = createClient()
   const isAdmin = currentProfile.role === 'admin'
+  // Non-admins cannot book on blackout days; admins can still manage existing appointments
+  const isBlocked = !!blackoutDay && !isAdmin
 
   const applicationAppts = appointments.filter(a => a.status !== 'rejected' && (!a.job_type || a.job_type === 'application'))
   const disinfectAppts   = appointments.filter(a => a.status !== 'rejected' && a.job_type === 'stg_disinfect')
@@ -366,8 +370,24 @@ export default function AppointmentModal({
           </div>
         )}
 
+        {/* Blackout / holiday banner */}
+        {blackoutDay && (
+          <div className="p-5 border-b border-gray-100">
+            <div className={`rounded-xl p-4 text-center ${isAdmin ? 'bg-orange-50 border border-orange-200' : 'bg-red-50 border border-red-200'}`}>
+              <p className={`font-semibold ${isAdmin ? 'text-orange-800' : 'text-red-800'}`}>
+                {blackoutDay.reason ? blackoutDay.reason : 'Blocked Day'}
+              </p>
+              <p className={`text-sm mt-1 ${isAdmin ? 'text-orange-600' : 'text-red-600'}`}>
+                {isAdmin
+                  ? 'This day is blocked for salesmen. You can still manage existing appointments.'
+                  : 'This day is blocked. No new applications can be scheduled.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Full warning (applications only — disinfects always allowed) */}
-        {!editing && isFull && !isAdmin && !showRequestForm && !isDisinfectForm && (
+        {!editing && isFull && !isAdmin && !showRequestForm && !isDisinfectForm && !isBlocked && (
           <div className="p-5 border-b border-gray-100">
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
               <p className="font-semibold text-red-800">
@@ -389,8 +409,8 @@ export default function AppointmentModal({
           </div>
         )}
 
-        {/* Form */}
-        {(editing || showNewForm || (!editing && !isFull) || (!editing && isDisinfectForm)) && (
+        {/* Form — hidden for non-admins on blackout days */}
+        {!isBlocked && (editing || showNewForm || (!editing && !isFull) || (!editing && isDisinfectForm)) && (
           <form onSubmit={handleSubmit} className="p-5 space-y-5">
 
             {/* Edit banner */}

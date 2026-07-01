@@ -6,7 +6,7 @@ import {
   format, isSameMonth, isToday, parseISO, addMonths, subMonths, getDay,
 } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { Appointment, CapacityRule, DailyCapacity, DayOff, Profile, Truck } from '@/lib/types'
+import { Appointment, BlackoutDay, CapacityRule, DailyCapacity, DayOff, Profile, Truck } from '@/lib/types'
 import AppointmentModal from './AppointmentModal'
 import DayOffModal from './DayOffModal'
 
@@ -24,6 +24,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
   const [trucks, setTrucks]             = useState<Truck[]>([])
   const [daysOff, setDaysOff]           = useState<DayOff[]>([])
+  const [blackoutDays, setBlackoutDays] = useState<BlackoutDay[]>([])
   const [defaultMax, setDefaultMax]     = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [loading, setLoading]           = useState(true)
@@ -52,6 +53,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       supabase.from('capacity_rules').select('*'),
       supabase.from('trucks_with_details').select('*'),
       supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
+      supabase.from('blackout_days').select('*').gte('date', monthStart).lte('date', monthEnd),
     ]
 
     if (isApplicator) {
@@ -60,15 +62,16 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       queries.push(supabase.from('days_off').select('*').gte('date', monthStart).lte('date', monthEnd).eq('status', 'approved'))
     }
 
-    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, daysOffRes] =
+    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes, daysOffRes] =
       await Promise.all(queries) as Awaited<ReturnType<typeof supabase.from>>[]
 
-    if ((apptRes as { data: unknown[] | null }).data)    setAppointments((apptRes as { data: Appointment[] }).data!)
-    if ((capRes as { data: unknown[] | null }).data)     setCapacities((capRes as { data: DailyCapacity[] }).data!)
-    if ((rulesRes as { data: unknown[] | null }).data)   setCapacityRules((rulesRes as { data: CapacityRule[] }).data!)
-    if ((trucksRes as { data: unknown[] | null }).data)  setTrucks((trucksRes as { data: Truck[] }).data!)
+    if ((apptRes as { data: unknown[] | null }).data)      setAppointments((apptRes as { data: Appointment[] }).data!)
+    if ((capRes as { data: unknown[] | null }).data)       setCapacities((capRes as { data: DailyCapacity[] }).data!)
+    if ((rulesRes as { data: unknown[] | null }).data)     setCapacityRules((rulesRes as { data: CapacityRule[] }).data!)
+    if ((trucksRes as { data: unknown[] | null }).data)    setTrucks((trucksRes as { data: Truck[] }).data!)
     if ((settingsRes as { data: { value: string } | null }).data) setDefaultMax(parseInt((settingsRes as { data: { value: string } }).data!.value) || 5)
-    if ((daysOffRes as { data: unknown[] | null }).data) setDaysOff((daysOffRes as { data: DayOff[] }).data!)
+    if ((blackoutRes as { data: unknown[] | null }).data)  setBlackoutDays((blackoutRes as { data: BlackoutDay[] }).data!)
+    if ((daysOffRes as { data: unknown[] | null }).data)   setDaysOff((daysOffRes as { data: DayOff[] }).data!)
 
     setLoading(false)
   }, [currentMonth, supabase, isApplicator, profile.id])
@@ -297,11 +300,12 @@ export default function CalendarView({ profile }: { profile: Profile }) {
       ) : (
         <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden border border-gray-200">
           {days.map(day => {
-            const dateStr  = format(day, 'yyyy-MM-dd')
-            const inMonth  = isSameMonth(day, currentMonth)
-            const today    = isToday(day)
-            const dayAppts = getAppointments(dateStr)
-            const myDayOff = getMyDayOff(dateStr)
+            const dateStr   = format(day, 'yyyy-MM-dd')
+            const inMonth   = isSameMonth(day, currentMonth)
+            const today     = isToday(day)
+            const dayAppts  = getAppointments(dateStr)
+            const myDayOff  = getMyDayOff(dateStr)
+            const blackout  = blackoutDays.find(b => b.date === dateStr) ?? null
             const { max, isWeekendBlocked } = getDateCapacity(dateStr)
             // Sum slot_count across all non-rejected appointments on this day.
             // Applications default to 1 slot; disinfects default to 0 but can be raised.
@@ -324,6 +328,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   ${!inMonth ? 'opacity-40' : ''}
                   ${today ? 'ring-2 ring-inset ring-blue-500' : ''}
                   ${blocked ? 'bg-gray-50' : ''}
+                  ${blackout ? 'bg-red-50' : ''}
                   ${!isViewer ? 'cursor-pointer hover:bg-blue-50' : 'cursor-default'}
                   ${isDragTarget ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : ''}
                 `}
@@ -333,6 +338,15 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                 }`}>
                   {format(day, 'd')}
                 </span>
+
+                {/* Blackout / holiday label */}
+                {blackout && inMonth && !isApplicator && (
+                  <div className="mt-1">
+                    <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-700 block truncate">
+                      {blackout.reason ? blackout.reason : 'Blocked'}
+                    </span>
+                  </div>
+                )}
 
                 {/* Applicator: day off status */}
                 {isApplicator && myDayOff && inMonth && (
@@ -348,8 +362,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                   </div>
                 )}
 
-                {/* Capacity pill */}
-                {!isApplicator && !blocked && max > 0 && inMonth && (
+                {/* Capacity pill — hidden on blackout days */}
+                {!isApplicator && !blocked && !blackout && max > 0 && inMonth && (
                   <div className="mt-1">
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                       full ? 'bg-red-100 text-red-700' : count > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
@@ -360,7 +374,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                 )}
 
                 {/* Weekend blocked */}
-                {blocked && inMonth && !isApplicator && (
+                {blocked && !blackout && inMonth && !isApplicator && (
                   <div className="mt-1">
                     <span className="text-xs text-gray-400 italic">Approval req.</span>
                   </div>
@@ -412,6 +426,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300 inline-block" />Available</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Full</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 border border-gray-300 inline-block" />Approval required</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Blocked / Holiday</span>
           </>
         )}
         {isApplicator && (
@@ -441,6 +456,7 @@ export default function CalendarView({ profile }: { profile: Profile }) {
           appointments={selectedDateAppointments}
           maxTrucks={selectedDayCapacity.max}
           isWeekendBlocked={selectedDayCapacity.isWeekendBlocked}
+          blackoutDay={blackoutDays.find(b => b.date === selectedDate) ?? null}
           currentProfile={profile}
           trucksForDay={getTrucksForDate(selectedDate)}
           availableTrucks={getAvailableTrucks(selectedDate)}

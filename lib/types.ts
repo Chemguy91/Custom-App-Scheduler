@@ -112,6 +112,14 @@ export interface CapacityRule {
   created_at: string
 }
 
+export interface BlackoutDay {
+  id: string
+  date: string        // 'YYYY-MM-DD'
+  reason: string | null
+  created_by: string | null
+  created_at: string
+}
+
 // Grouped by date for calendar display
 export interface DayData {
   date: string

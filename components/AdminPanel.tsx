@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ApprovalRequest, CapacityRule, DayOff, Profile, Truck } from '@/lib/types'
+import { ApprovalRequest, BlackoutDay, CapacityRule, DayOff, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -15,6 +15,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
   const [trucks, setTrucks] = useState<Truck[]>([])
   const [daysOffRequests, setDaysOffRequests] = useState<DayOff[]>([])
+  const [blackoutDays, setBlackoutDays] = useState<BlackoutDay[]>([])
   const [defaultCapacity, setDefaultCapacity] = useState('5')
   const [savingCapacity, setSavingCapacity] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -23,7 +24,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [reqRes, profRes, rulesRes, trucksRes, daysOffRes, settingsRes] = await Promise.all([
+    const [reqRes, profRes, rulesRes, trucksRes, daysOffRes, blackoutRes, settingsRes] = await Promise.all([
       supabase
         .from('approval_requests')
         .select(`*, profiles!approval_requests_salesman_id_fkey(full_name)`)
@@ -32,6 +33,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
       supabase.from('capacity_rules').select('*').order('created_at', { ascending: false }),
       supabase.from('trucks_with_details').select('*').order('name'),
       supabase.from('days_off').select(`*, profiles!days_off_applicator_id_fkey(full_name), trucks(name)`).order('date'),
+      supabase.from('blackout_days').select('*').order('date'),
       supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
     ])
 
@@ -44,6 +46,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
     if (profRes.data) setProfiles(profRes.data as Profile[])
     if (rulesRes.data) setCapacityRules(rulesRes.data as CapacityRule[])
     if (trucksRes.data) setTrucks(trucksRes.data as Truck[])
+    if (blackoutRes?.data) setBlackoutDays(blackoutRes.data as BlackoutDay[])
     if (daysOffRes.data) {
       setDaysOffRequests(daysOffRes.data.map((d: Record<string, unknown>) => ({
         ...d,
@@ -478,6 +481,20 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                   Set an exact application count for one specific date — overrides all rules.
                 </p>
                 <CapacityOverride supabase={supabase} adminId={profile.id} />
+              </div>
+
+              {/* Blackout Days */}
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="font-semibold text-gray-900 mb-1">Blackout Days</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Block specific dates for holidays or closures. Salesmen cannot schedule applications on blacked-out days.
+                </p>
+                <BlackoutDaysManager
+                  supabase={supabase}
+                  adminId={profile.id}
+                  blackoutDays={blackoutDays}
+                  onRefresh={fetchData}
+                />
               </div>
             </div>
           )}
@@ -1331,6 +1348,117 @@ function RequestCard({
             {fixing ? 'Adding…' : 'Add to Calendar'}
           </button>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Blackout Days Manager ────────────────────────────────────────────────────
+
+function BlackoutDaysManager({
+  supabase,
+  adminId,
+  blackoutDays,
+  onRefresh,
+}: {
+  supabase: ReturnType<typeof createClient>
+  adminId: string
+  blackoutDays: BlackoutDay[]
+  onRefresh: () => void
+}) {
+  const [date, setDate]     = useState('')
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg]       = useState('')
+
+  async function addBlackout() {
+    if (!date) return
+    setSaving(true)
+    setMsg('')
+    const { error } = await supabase
+      .from('blackout_days')
+      .insert({ date, reason: reason.trim() || null, created_by: adminId })
+    setSaving(false)
+    if (error) {
+      setMsg(error.code === '23505' ? 'That date is already blocked.' : `Error: ${error.message}`)
+    } else {
+      setMsg('Day blocked.')
+      setDate('')
+      setReason('')
+      onRefresh()
+      setTimeout(() => setMsg(''), 2000)
+    }
+  }
+
+  async function removeBlackout(id: string) {
+    await supabase.from('blackout_days').delete().eq('id', id)
+    onRefresh()
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Add form */}
+      <div className="flex gap-3 flex-wrap items-end">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Reason <span className="text-gray-400">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder='e.g. "Thanksgiving"'
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <button
+          onClick={addBlackout}
+          disabled={!date || saving}
+          className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          {saving ? 'Saving…' : 'Block Day'}
+        </button>
+      </div>
+
+      {msg && (
+        <p className={`text-sm ${msg.startsWith('Error') || msg.includes('already') ? 'text-red-600' : 'text-green-600'}`}>
+          {msg}
+        </p>
+      )}
+
+      {/* Existing blackout days */}
+      {blackoutDays.length > 0 ? (
+        <div className="space-y-2 mt-2">
+          {blackoutDays.map(b => (
+            <div key={b.id} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              <div>
+                <span className="text-sm font-medium text-gray-900">
+                  {format(parseISO(b.date), 'EEE, MMM d, yyyy')}
+                </span>
+                {b.reason && (
+                  <span className="ml-2 text-sm text-red-700">{b.reason}</span>
+                )}
+              </div>
+              <button
+                onClick={() => removeBlackout(b.id)}
+                className="text-xs text-red-500 hover:text-red-700 font-medium ml-4"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400 italic">No blackout days set.</p>
       )}
     </div>
   )
