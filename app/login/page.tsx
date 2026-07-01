@@ -40,7 +40,8 @@ export default function LoginPage() {
             className="object-contain mb-4"
             priority
           />
-          <p className="text-sm text-gray-500">Sign in to your account</p>
+          <h1 className="text-xl font-bold text-gray-900">Application Scheduler</h1>
+          <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
