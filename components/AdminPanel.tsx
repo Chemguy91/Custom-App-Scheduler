@@ -482,45 +482,12 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
 
           {/* USERS TAB */}
           {activeTab === 'users' && (
-            <div className="space-y-4">
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="text-left px-4 py-3 font-medium text-gray-500">Name</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-500">Role</th>
-                      <th className="text-left px-4 py-3 font-medium text-gray-500">Joined</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {profiles.map(p => (
-                      <tr key={p.id} className="border-b border-gray-50 last:border-0">
-                        <td className="px-4 py-3 font-medium text-gray-900">{p.full_name}</td>
-                        <td className="px-4 py-3">
-                          {p.id === profile.id ? (
-                            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700">
-                              Admin (you)
-                            </span>
-                          ) : (
-                            <RoleSelect
-                              userId={p.id}
-                              currentRole={p.role}
-                              supabase={supabase}
-                              onChanged={fetchData}
-                            />
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
-                          {format(parseISO(p.created_at), 'MMM d, yyyy')}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <AddUserForm onSuccess={fetchData} />
-            </div>
+            <UsersTab
+              profiles={profiles}
+              currentUserId={profile.id}
+              supabase={supabase}
+              onRefresh={fetchData}
+            />
           )}
 
           {/* SETTINGS TAB */}
@@ -561,6 +528,194 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Users Tab ────────────────────────────────────────────────────────────────
+
+const ROLE_LABELS_MAP: Record<string, string> = {
+  admin:         'Admin',
+  sales_manager: 'Sales Manager',
+  applicator:    'Applicator',
+  viewer:        'Viewer',
+}
+
+const ROLE_COLORS_MAP: Record<string, string> = {
+  admin:         'bg-purple-100 text-purple-700',
+  sales_manager: 'bg-blue-100 text-blue-700',
+  applicator:    'bg-green-100 text-green-700',
+  viewer:        'bg-gray-100 text-gray-600',
+}
+
+function UsersTab({
+  profiles,
+  currentUserId,
+  supabase,
+  onRefresh,
+}: {
+  profiles: Profile[]
+  currentUserId: string
+  supabase: ReturnType<typeof createClient>
+  onRefresh: () => void
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName]   = useState('')
+  const [editRole, setEditRole]   = useState('')
+  const [editPass, setEditPass]   = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [msg, setMsg]             = useState('')
+  const [isError, setIsError]     = useState(false)
+
+  function startEdit(p: Profile) {
+    setEditingId(p.id)
+    setEditName(p.full_name)
+    setEditRole(p.role)
+    setEditPass('')
+    setMsg('')
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setMsg('')
+  }
+
+  async function saveEdit() {
+    setSaving(true); setMsg(''); setIsError(false)
+    const body: Record<string, string> = { userId: editingId! }
+    if (editName.trim()) body.full_name = editName.trim()
+    body.role = editRole
+    if (editPass) body.password = editPass
+
+    const res = await fetch('/api/update-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    setSaving(false)
+    if (!res.ok) {
+      setIsError(true)
+      setMsg(data.error ?? 'Something went wrong.')
+    } else {
+      setMsg('Saved!')
+      setEditingId(null)
+      onRefresh()
+      setTimeout(() => setMsg(''), 2000)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {msg && !editingId && (
+        <p className={`text-sm px-3 py-2 rounded-lg ${isError ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
+          {msg}
+        </p>
+      )}
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left px-4 py-3 font-medium text-gray-500">Name</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-500">Role</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-500">Joined</th>
+              <th className="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {profiles.map(p => {
+              const isMe = p.id === currentUserId
+              const isEditing = editingId === p.id
+              return (
+                <tr key={p.id} className={`border-b border-gray-50 last:border-0 ${isEditing ? 'bg-blue-50' : ''}`}>
+                  {isEditing ? (
+                    /* ── Edit row ── */
+                    <td colSpan={4} className="px-4 py-4">
+                      <div className="space-y-3">
+                        <div className="flex gap-3 flex-wrap">
+                          <div className="flex-1 min-w-[160px]">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Full Name</label>
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={e => setEditName(e.target.value)}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
+                            <select
+                              value={editRole}
+                              onChange={e => setEditRole(e.target.value)}
+                              disabled={isMe}
+                              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                            >
+                              <option value="sales_manager">Sales Manager</option>
+                              <option value="applicator">Applicator</option>
+                              <option value="viewer">Viewer</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          </div>
+                          <div className="flex-1 min-w-[160px]">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">New Password <span className="text-gray-400">(leave blank to keep)</span></label>
+                            <input
+                              type="password"
+                              value={editPass}
+                              onChange={e => setEditPass(e.target.value)}
+                              placeholder="Min. 6 characters"
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                        </div>
+                        {msg && isEditing && (
+                          <p className={`text-xs ${isError ? 'text-red-600' : 'text-green-700'}`}>{msg}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={saveEdit}
+                            disabled={saving}
+                            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors"
+                          >
+                            {saving ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            className="text-gray-500 hover:text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  ) : (
+                    /* ── Normal row ── */
+                    <>
+                      <td className="px-4 py-3 font-medium text-gray-900">{p.full_name}</td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS_MAP[p.role] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {ROLE_LABELS_MAP[p.role] ?? p.role}{isMe ? ' (you)' : ''}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{format(parseISO(p.created_at), 'MMM d, yyyy')}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => startEdit(p)}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </>
+                  )}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <AddUserForm onSuccess={onRefresh} />
     </div>
   )
 }
