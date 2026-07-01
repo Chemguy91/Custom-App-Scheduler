@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Appointment, BlackoutDay, JobType, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
@@ -53,6 +53,7 @@ function blankForm(jobType: JobType = 'application') {
     selectedProducts: [] as ProductEntry[],
     truckId:          '',
     slotCount:        jobType === 'stg_disinfect' ? 0 : 1,
+    salesmanId:       '',
   }
 }
 
@@ -67,6 +68,7 @@ function formFromAppt(appt: Appointment) {
     selectedProducts: (appt.products as ProductEntry[]) ?? [],
     truckId:          appt.truck_id ?? '',
     slotCount:        appt.slot_count ?? (appt.job_type === 'stg_disinfect' ? 0 : 1),
+    salesmanId:       appt.salesman_id ?? '',
   }
 }
 
@@ -105,6 +107,17 @@ export default function AppointmentModal({
   const [form, setForm]                   = useState(blankForm())
   const [loading, setLoading]             = useState(false)
   const [error, setError]                 = useState('')
+  const [salesManagers, setSalesManagers] = useState<{ id: string; full_name: string }[]>([])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('role', 'sales_manager')
+      .order('full_name')
+      .then(({ data }) => { if (data) setSalesManagers(data) })
+  }, [isAdmin, supabase])
 
   const displayDate = format(parseISO(date), 'EEEE, MMMM d, yyyy')
 
@@ -152,6 +165,10 @@ export default function AppointmentModal({
 
     const isDisinfect = form.jobType === 'stg_disinfect'
 
+    if (isAdmin && !form.salesmanId) {
+      setError('Please assign a Sales Manager.')
+      return
+    }
     if (!isDisinfect && form.selectedProducts.length === 0) {
       setError('Please select at least one product.')
       return
@@ -190,9 +207,14 @@ export default function AppointmentModal({
       slot_count:        isAdmin ? form.slotCount : 1,
     }
 
+    // Resolve which salesman owns this job
+    const resolvedSalesmanId = isAdmin && form.salesmanId ? form.salesmanId : currentProfile.id
+
     try {
       if (editing) {
-        const { error } = await supabase.from('appointments').update(appPayload).eq('id', editing.id)
+        const updatePayload: Record<string, unknown> = { ...appPayload }
+        if (isAdmin && form.salesmanId) updatePayload.salesman_id = form.salesmanId
+        const { error } = await supabase.from('appointments').update(updatePayload).eq('id', editing.id)
         if (error) throw error
       } else if (isDisinfect && !isAdmin) {
         // Stg Disinfect from sales manager → always goes to admin approval
@@ -224,7 +246,7 @@ export default function AppointmentModal({
         // Direct schedule (admin stg_disinfect, or open application slot)
         const { error } = await supabase.from('appointments').insert({
           date,
-          salesman_id: currentProfile.id,
+          salesman_id: resolvedSalesmanId,
           status:      'confirmed',
           ...appPayload,
         })
@@ -447,6 +469,26 @@ export default function AppointmentModal({
             {isDisinfectForm && !isAdmin && !editing && (
               <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-800">
                 Stg Disinfect requests go to admin for scheduling. Multiple can be done in a day.
+              </div>
+            )}
+
+            {/* Salesman assignment — admin only */}
+            {isAdmin && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Assign Sales Manager <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={form.salesmanId}
+                  onChange={e => set('salesmanId', e.target.value)}
+                  required={isAdmin}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">— Select a Sales Manager —</option>
+                  {salesManagers.map(sm => (
+                    <option key={sm.id} value={sm.id}>{sm.full_name}</option>
+                  ))}
+                </select>
               </div>
             )}
 
