@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Navbar from '@/components/Navbar'
-import AdminPanel from '@/components/AdminPanel'
+import SummaryPanel from '@/components/SummaryPanel'
 import { Profile } from '@/lib/types'
 
-export default async function AdminPage() {
+export default async function SummaryPage() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -20,7 +20,7 @@ export default async function AdminPage() {
   return (
     <>
       <Navbar profile={profile as Profile} />
-      <AdminPanel profile={profile as Profile} />
+      <SummaryPanel />
     </>
   )
 }

@@ -68,6 +68,11 @@ export default function Navbar({ profile }: { profile: Profile }) {
               Admin
             </Link>
           )}
+          {(profile.role === 'admin' || profile.role === 'viewer') && (
+            <Link href="/summary" className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+              Summary
+            </Link>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
