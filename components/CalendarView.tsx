@@ -219,7 +219,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
     const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
     const monthEnd   = format(endOfMonth(currentMonth),   'yyyy-MM-dd')
 
-    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes, smRes] =
+    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes] =
       await Promise.all([
         supabase.from('appointments_with_details').select('*').gte('date', monthStart).lte('date', monthEnd).neq('status', 'rejected').eq('is_demo', isDemo),
         supabase.from('daily_capacity').select('*').gte('date', monthStart).lte('date', monthEnd),
@@ -227,24 +227,27 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
         supabase.from('trucks_with_details').select('*'),
         supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
         supabase.from('blackout_days').select('*').gte('date', monthStart).lte('date', monthEnd),
-        isAdmin ? supabase.from('profiles').select('id, full_name').eq('role', 'sales_manager').order('full_name') : Promise.resolve({ data: null }),
-      ]) as Awaited<ReturnType<typeof supabase.from>>[]
+      ])
 
-    if ((apptRes as { data: unknown[] | null }).data) {
-      const appts = (apptRes as { data: Appointment[] }).data!
+    if (apptRes.data) {
+      const appts = apptRes.data as unknown as Appointment[]
       setAppointments(
         profile.role === 'viewer'
           ? appts.filter(a => (a.salesman_name ?? '').toLowerCase() !== 'test')
           : appts
       )
     }
-    if ((capRes as { data: unknown[] | null }).data)       setCapacities((capRes as { data: DailyCapacity[] }).data!)
-    if ((rulesRes as { data: unknown[] | null }).data)     setCapacityRules((rulesRes as { data: CapacityRule[] }).data!)
-    if ((trucksRes as { data: unknown[] | null }).data)    setTrucks((trucksRes as { data: Truck[] }).data!)
-    if ((settingsRes as { data: { value: string } | null }).data) setDefaultMax(parseInt((settingsRes as { data: { value: string } }).data!.value) || 5)
-    if ((blackoutRes as { data: unknown[] | null }).data)  setBlackoutDays((blackoutRes as { data: BlackoutDay[] }).data!)
-    if ((smRes as { data: { id: string; full_name: string }[] | null }).data) {
-      setSalesManagers((smRes as { data: { id: string; full_name: string }[] }).data!.map(p => ({ id: p.id, name: p.full_name })))
+    if (capRes.data)      setCapacities(capRes.data as unknown as DailyCapacity[])
+    if (rulesRes.data)    setCapacityRules(rulesRes.data as unknown as CapacityRule[])
+    if (trucksRes.data)   setTrucks(trucksRes.data as unknown as Truck[])
+    if (settingsRes.data) setDefaultMax(parseInt((settingsRes.data as unknown as { value: string }).value) || 5)
+    if (blackoutRes.data) setBlackoutDays(blackoutRes.data as unknown as BlackoutDay[])
+
+    if (isAdmin) {
+      const smRes = await supabase.from('profiles').select('id, full_name').eq('role', 'sales_manager').order('full_name')
+      if (smRes.data) {
+        setSalesManagers((smRes.data as unknown as { id: string; full_name: string }[]).map(p => ({ id: p.id, name: p.full_name })))
+      }
     }
 
     setLoading(false)
