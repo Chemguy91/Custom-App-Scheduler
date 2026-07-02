@@ -956,9 +956,3 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
     </div>
   )
 }
-cess={() => { setSelectedDate(null); fetchData() }}
-        />
-      )}
-    </div>
-  )
-}
