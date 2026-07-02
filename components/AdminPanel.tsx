@@ -2043,6 +2043,60 @@ function DemoModeTab({ supabase, adminId, profiles, trucks }: { supabase: Return
   )
 }
 
+// ─── Capacity Override (exact date) ──────────────────────────────────────────
+
+function CapacityOverride({ supabase, adminId }: { supabase: ReturnType<typeof createClient>, adminId: string }) {
+  const [date, setDate] = useState('')
+  const [max, setMax] = useState('5')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  async function save() {
+    if (!date) return
+    setSaving(true)
+    setMsg('')
+    const { error } = await supabase
+      .from('daily_capacity')
+      .upsert({ date, max_trucks: parseInt(max), set_by: adminId }, { onConflict: 'date' })
+    setSaving(false)
+    setMsg(error ? `Error: ${error.message}` : `Saved: ${date} → ${max} applications`)
+    if (!error) { setDate(''); setMax('5') }
+  }
+
+  return (
+    <div className="flex items-end gap-3 flex-wrap">
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+        <input
+          type="date"
+          value={date}
+          onChange={e => setDate(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Max Applications</label>
+        <input
+          type="number"
+          min={0}
+          max={50}
+          value={max}
+          onChange={e => setMax(e.target.value)}
+          className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+      <button
+        onClick={save}
+        disabled={saving || !date}
+        className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+      >
+        {saving ? 'Saving…' : 'Set override'}
+      </button>
+      {msg && <p className="text-sm text-gray-600 w-full">{msg}</p>}
+    </div>
+  )
+}
+
 // ─── Monthly Summary Tab ─────────────────────────────────────────────────────
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
