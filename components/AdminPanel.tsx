@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ApprovalRequest, BlackoutDay, CapacityRule, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
-import { useDemoProfile, useDemoPersonas } from './DemoWrapper'
+import { useDemoProfile, useIsDemo, useDemoPersonas } from './DemoWrapper'
 
 // Safe date formatter — returns '—' for null/empty/invalid dates instead of throwing
 function safeDate(d: string | null | undefined, fmt: string): string {
@@ -19,6 +19,7 @@ const WEEKDAYS = [1, 2, 3, 4, 5]
 
 export default function AdminPanel({ profile: serverProfile }: { profile: Profile }) {
   const profile = useDemoProfile(serverProfile)
+  const isDemo  = useIsDemo()
   const supabase = createClient()
   const [requests, setRequests] = useState<ApprovalRequest[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -269,6 +270,14 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Manage requests, capacity rules, users, and settings</p>
       </div>
 
+      {/* Demo read-only banner */}
+      {isDemo && (
+        <div className="mb-4 flex items-center gap-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+          <span><strong>Demo — View Only.</strong> Changes are disabled in demo mode.</span>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 flex-wrap">
         {([
@@ -302,7 +311,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading…</div>
       ) : (
-        <>
+        <div className={isDemo ? 'pointer-events-none opacity-60 select-none' : ''}>
           {/* REQUESTS TAB */}
           {activeTab === 'requests' && (
             <div className="space-y-4">
@@ -501,7 +510,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
           )}
 
 
-        </>
+        </div>
       )}
 
       {/* ── New-request toast ── */}
