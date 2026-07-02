@@ -2198,3 +2198,39 @@ function SummaryTab({ supabase }: { supabase: ReturnType<typeof createClient> })
                   <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
                     {row.totalCwt.toLocaleString()} CWT
                 
+                  </span>
+                )}
+                <svg
+                  className="w-4 h-4 text-gray-400 transition-transform duration-200"
+                  style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </button>
+
+            {isOpen && (
+              <div className="border-t border-gray-100 dark:border-gray-700 divide-y divide-gray-50 dark:divide-gray-800">
+                {row.customers.map((c, idx) => (
+                  <div key={idx} className="px-5 py-3 flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-gray-500 dark:text-gray-400 shrink-0 w-20 text-xs">{c.date}</span>
+                      <span className="font-medium text-gray-900 dark:text-white truncate">{c.customer}</span>
+                      {c.salesman && <span className="text-xs text-gray-400 dark:text-gray-500 truncate">{c.salesman}</span>}
+                    </div>
+                    {c.cwt != null && (
+                      <span className="text-xs font-medium text-gray-600 dark:text-gray-400 shrink-0 ml-3">
+                        {c.cwt.toLocaleString()} CWT
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}

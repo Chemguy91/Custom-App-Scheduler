@@ -873,3 +873,92 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                         <li
                           key={a.id}
                           className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                          onClick={() => isApplicator ? setDetailAppt(a) : handleDayClick(dateStr)}
+                        >
+                          <span className={`text-xs px-2 py-1 rounded font-medium flex-shrink-0 mt-0.5 ${chipClass}`}>
+                            {isDisinfect ? 'Disinfect' : 'App'}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{a.customer_name}</p>
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                              {a.truck_name && <p className="text-xs text-gray-500 dark:text-gray-400">{a.truck_name}</p>}
+                              {a.salesman_name && <p className="text-xs text-gray-400 dark:text-gray-500">{a.salesman_name}</p>}
+                              {!isDisinfect && (a.products ?? []).length > 0 && (
+                                <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{a.products.map(p => p.product).join(', ')}</p>
+                              )}
+                              {a.storage_name && <p className="text-xs text-gray-400 dark:text-gray-500">{a.storage_name}</p>}
+                            </div>
+                            {a.notes && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic truncate">{a.notes}</p>}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
+
+      {/* Legend */}
+      <div className="mt-5 space-y-3">
+        {!isApplicator && (
+          <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300 inline-block" />Available</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Full</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 border border-gray-300 inline-block" />Approval required</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded inline-block cal-blackout border border-red-300" />Blocked / Holiday</span>
+          </div>
+        )}
+        {!isViewer && (
+          <div>
+            <p className="text-xs font-medium text-gray-400 mb-1.5">Product colors</p>
+            <div className="flex flex-wrap gap-2">
+              {([
+                { label: 'Smart Block',       cls: 'chip-purple'    },
+                { label: '1,4 Zap',           cls: 'chip-yellow'    },
+                { label: 'DMN',               cls: 'chip-brown'     },
+                { label: 'Storox / Perox AG', cls: 'chip-green'     },
+                { label: 'Purogene Pro',      cls: 'chip-blue'      },
+                { label: 'CIPC',              cls: 'chip-orange'    },
+                { label: 'Amplify',           cls: 'chip-white'     },
+                { label: 'Fresh Pack 100',    cls: 'chip-pink'      },
+                { label: 'Stg Disinfect',     cls: 'chip-disinfect' },
+              ] as const).map(({ label, cls }) => (
+                <span key={label} className={`text-xs px-2 py-0.5 rounded font-medium ${cls}`}>
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {detailAppt && (
+        <ApptDetailModal appt={detailAppt} onClose={() => setDetailAppt(null)} />
+      )}
+
+      {selectedDate && canSchedule && (
+        <AppointmentModal
+          date={selectedDate}
+          appointments={selectedDateAppointments}
+          maxTrucks={selectedDayCapacity.max}
+          isWeekendBlocked={selectedDayCapacity.isWeekendBlocked}
+          blackoutDay={blackoutDays.find(b => b.date === selectedDate) ?? null}
+          currentProfile={profile}
+          trucksForDay={getTrucksForDate(selectedDate)}
+          availableTrucks={getAvailableTrucks(selectedDate)}
+          onClose={() => setSelectedDate(null)}
+          onSuccess={() => { setSelectedDate(null); fetchData() }}
+        />
+      )}
+    </div>
+  )
+}
+cess={() => { setSelectedDate(null); fetchData() }}
+        />
+      )}
+    </div>
+  )
+}
