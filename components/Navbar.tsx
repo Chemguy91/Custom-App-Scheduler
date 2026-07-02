@@ -9,7 +9,7 @@ import { useTheme } from './ThemeProvider'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
-  sales_manager: 'Sales Manager',
+  sales_manager: 'Account Manager',
   applicator: 'Applicator',
   viewer: 'Viewer',
 }
@@ -66,6 +66,11 @@ export default function Navbar({ profile }: { profile: Profile }) {
           {profile.role === 'admin' && (
             <Link href="/admin" className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
               Admin
+            </Link>
+          )}
+          {(profile.role === 'admin' || profile.role === 'viewer') && (
+            <Link href="/summary" className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+              Summary
             </Link>
           )}
         </div>

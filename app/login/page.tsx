@@ -87,6 +87,24 @@ export default function LoginPage() {
         <p className="text-xs text-gray-400 text-center mt-6">
           Contact your admin if you need an account.
         </p>
+
+        {/* Demo account */}
+        <div className="mt-4 border border-amber-200 bg-amber-50 rounded-xl p-4">
+          <p className="text-xs font-semibold text-amber-700 text-center mb-3">🎯 Try the Demo</p>
+          <button
+            onClick={async () => {
+              setError('')
+              setLoading(true)
+              const { error } = await supabase.auth.signInWithPassword({ email: 'demo@demo.com', password: 'demo123' })
+              if (error) { setError(error.message); setLoading(false) }
+              else { router.push('/calendar'); router.refresh() }
+            }}
+            disabled={loading}
+            className="w-full bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white text-sm font-semibold py-2 rounded-lg transition-colors"
+          >
+            {loading ? 'Signing in…' : 'Enter demo mode'}
+          </button>
+        </div>
       </div>
     </div>
   )

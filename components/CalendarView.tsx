@@ -9,6 +9,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { Appointment, BlackoutDay, CapacityRule, DailyCapacity, Profile, Truck } from '@/lib/types'
 import AppointmentModal from './AppointmentModal'
+import { useDemoProfile, useIsDemo, useDemoPersonas } from './DemoWrapper'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -84,9 +85,9 @@ function ApptDetailModal({ appt, onClose }: { appt: Appointment; onClose: () => 
             </div>
           )}
 
-          {/* Salesman */}
+          {/* Account Manager */}
           {appt.salesman_name && (
-            <Row label="Salesman">{appt.salesman_name}</Row>
+            <Row label="Account Manager">{appt.salesman_name}</Row>
           )}
 
           {/* Slots */}
@@ -147,12 +148,16 @@ interface DayCapacityResult {
   isWeekendBlocked: boolean
 }
 
-export default function CalendarView({ profile }: { profile: Profile }) {
+export default function CalendarView({ profile: serverProfile }: { profile: Profile }) {
+  const profile  = useDemoProfile(serverProfile)
+  const isDemo   = useIsDemo()
+  const { demoSalesmanId, demoApplicatorId } = useDemoPersonas()
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [capacities, setCapacities]     = useState<DailyCapacity[]>([])
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
   const [trucks, setTrucks]             = useState<Truck[]>([])
+  const [salesManagers, setSalesManagers] = useState<{ id: string; name: string }[]>([])
   const [blackoutDays, setBlackoutDays] = useState<BlackoutDay[]>([])
   const [defaultMax, setDefaultMax]     = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
@@ -160,6 +165,8 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const [showMyOnly, setShowMyOnly]               = useState(false)
   const [applicatorViewAll, setApplicatorViewAll] = useState(false)
   const [viewerSalesmanFilter, setViewerSalesmanFilter] = useState<string | null>(null)
+  const [adminSalesmanFilter,  setAdminSalesmanFilter]  = useState<string | null>(null)
+  const [adminTruckFilter,     setAdminTruckFilter]     = useState<string | null>(null)
   const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
   const [viewMode, setViewMode] = useState<'month' | 'week' | 'list'>('month')
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }))
@@ -177,8 +184,12 @@ export default function CalendarView({ profile }: { profile: Profile }) {
   const isAdmin        = profile.role === 'admin'
   const canSchedule    = isSalesManager || isAdmin
 
-  // The truck assigned to this applicator (used to filter their jobs)
-  const myTruck = isApplicator ? trucks.find(t => t.applicator_id === profile.id) ?? null : null
+  // The truck assigned to this applicator (use demo persona ID when in demo mode)
+  const effectiveApplicatorId = isDemo && demoApplicatorId ? demoApplicatorId : profile.id
+  const myTruck = isApplicator ? trucks.find(t => t.applicator_id === effectiveApplicatorId) ?? null : null
+
+  // Effective salesman ID for "My Jobs" filter (use demo persona ID when in demo mode)
+  const effectiveSalesmanId = isDemo && demoSalesmanId ? demoSalesmanId : profile.id
 
   // Unique salespeople derived from appointments — used by viewer filter (excludes "Test")
   const viewerSalespeople = isViewer
@@ -193,19 +204,30 @@ export default function CalendarView({ profile }: { profile: Profile }) {
         .sort((a, b) => a.name.localeCompare(b.name))
     : []
 
+  // Admin filter lists — salesmen from profiles, trucks from loaded trucks state
+  const adminSalespeople = isAdmin ? salesManagers : []
+
+  const adminTrucks = isAdmin
+    ? trucks
+        .filter(t => t.applicator_name)
+        .map(t => ({ id: t.id, label: t.applicator_name ? `${t.name} · ${t.applicator_name}` : t.name }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+    : []
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
     const monthEnd   = format(endOfMonth(currentMonth),   'yyyy-MM-dd')
 
-    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes] =
+    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes, smRes] =
       await Promise.all([
-        supabase.from('appointments_with_details').select('*').gte('date', monthStart).lte('date', monthEnd).neq('status', 'rejected'),
+        supabase.from('appointments_with_details').select('*').gte('date', monthStart).lte('date', monthEnd).neq('status', 'rejected').eq('is_demo', isDemo),
         supabase.from('daily_capacity').select('*').gte('date', monthStart).lte('date', monthEnd),
         supabase.from('capacity_rules').select('*'),
         supabase.from('trucks_with_details').select('*'),
         supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
         supabase.from('blackout_days').select('*').gte('date', monthStart).lte('date', monthEnd),
+        isAdmin ? supabase.from('profiles').select('id, full_name').eq('role', 'sales_manager').order('full_name') : Promise.resolve({ data: null }),
       ]) as Awaited<ReturnType<typeof supabase.from>>[]
 
     if ((apptRes as { data: unknown[] | null }).data) {
@@ -221,9 +243,12 @@ export default function CalendarView({ profile }: { profile: Profile }) {
     if ((trucksRes as { data: unknown[] | null }).data)    setTrucks((trucksRes as { data: Truck[] }).data!)
     if ((settingsRes as { data: { value: string } | null }).data) setDefaultMax(parseInt((settingsRes as { data: { value: string } }).data!.value) || 5)
     if ((blackoutRes as { data: unknown[] | null }).data)  setBlackoutDays((blackoutRes as { data: BlackoutDay[] }).data!)
+    if ((smRes as { data: { id: string; full_name: string }[] | null }).data) {
+      setSalesManagers((smRes as { data: { id: string; full_name: string }[] }).data!.map(p => ({ id: p.id, name: p.full_name })))
+    }
 
     setLoading(false)
-  }, [currentMonth, supabase, profile.id])
+  }, [currentMonth, supabase, profile.id, isDemo, isAdmin])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -401,9 +426,9 @@ export default function CalendarView({ profile }: { profile: Profile }) {
           <div className="bg-gray-100 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-500 text-center">
             You have view-only access to this calendar.
           </div>
-          {/* Salesman filter */}
+          {/* Account Manager filter */}
           <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
-            <p className="text-xs font-medium text-gray-400 mb-2">Filter by salesman</p>
+            <p className="text-xs font-medium text-gray-400 mb-2">Filter by account manager</p>
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setViewerSalesmanFilter(null)}
@@ -435,6 +460,46 @@ export default function CalendarView({ profile }: { profile: Profile }) {
           </div>
         </div>
       )}
+      {/* Admin filters */}
+      {isAdmin && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          {adminSalespeople.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">Account Manager:</span>
+              <select
+                value={adminSalesmanFilter ?? ''}
+                onChange={e => setAdminSalesmanFilter(e.target.value || null)}
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All</option>
+                {adminSalespeople.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+          {adminTrucks.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">Applicator:</span>
+              <select
+                value={adminTruckFilter ?? ''}
+                onChange={e => setAdminTruckFilter(e.target.value || null)}
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All</option>
+                {adminTrucks.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+          )}
+          {(adminSalesmanFilter || adminTruckFilter) && (
+            <button
+              onClick={() => { setAdminSalesmanFilter(null); setAdminTruckFilter(null) }}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
       {dragError && (
         <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-sm text-red-700 text-center">
           {dragError}
@@ -542,8 +607,13 @@ export default function CalendarView({ profile }: { profile: Profile }) {
               : isViewer && viewerSalesmanFilter
                 ? dayAppts.filter(a => a.salesman_id === viewerSalesmanFilter)
                 : (isSalesManager && showMyOnly)
-                  ? dayAppts.filter(a => a.salesman_id === profile.id)
-                  : dayAppts
+                  ? dayAppts.filter(a => a.salesman_id === effectiveSalesmanId)
+                  : isAdmin && (adminSalesmanFilter || adminTruckFilter)
+                    ? dayAppts.filter(a =>
+                        (!adminSalesmanFilter || a.salesman_id === adminSalesmanFilter) &&
+                        (!adminTruckFilter    || a.truck_id    === adminTruckFilter)
+                      )
+                    : dayAppts
             const blackout  = blackoutDays.find(b => b.date === dateStr) ?? null
             const { max, isWeekendBlocked } = getDateCapacity(dateStr)
             // Sum slot_count across all non-rejected appointments on this day.
@@ -670,8 +740,13 @@ export default function CalendarView({ profile }: { profile: Profile }) {
               : isViewer && viewerSalesmanFilter
                 ? dayAppts.filter(a => a.salesman_id === viewerSalesmanFilter)
                 : (isSalesManager && showMyOnly)
-                  ? dayAppts.filter(a => a.salesman_id === profile.id)
-                  : dayAppts
+                  ? dayAppts.filter(a => a.salesman_id === effectiveSalesmanId)
+                  : isAdmin && (adminSalesmanFilter || adminTruckFilter)
+                    ? dayAppts.filter(a =>
+                        (!adminSalesmanFilter || a.salesman_id === adminSalesmanFilter) &&
+                        (!adminTruckFilter    || a.truck_id    === adminTruckFilter)
+                      )
+                    : dayAppts
             const jobCount = visibleAppts.length
 
             return (
@@ -741,8 +816,13 @@ export default function CalendarView({ profile }: { profile: Profile }) {
               : isViewer && viewerSalesmanFilter
                 ? dayAppts.filter(a => a.salesman_id === viewerSalesmanFilter)
                 : (isSalesManager && showMyOnly)
-                  ? dayAppts.filter(a => a.salesman_id === profile.id)
-                  : dayAppts
+                  ? dayAppts.filter(a => a.salesman_id === effectiveSalesmanId)
+                  : isAdmin && (adminSalesmanFilter || adminTruckFilter)
+                    ? dayAppts.filter(a =>
+                        (!adminSalesmanFilter || a.salesman_id === adminSalesmanFilter) &&
+                        (!adminTruckFilter    || a.truck_id    === adminTruckFilter)
+                      )
+                    : dayAppts
             return { date: d, dateStr, appts: visible }
           })
           .filter(d => d.appts.length > 0)
@@ -790,90 +870,3 @@ export default function CalendarView({ profile }: { profile: Profile }) {
                         <li
                           key={a.id}
                           className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
-                          onClick={() => isApplicator ? setDetailAppt(a) : handleDayClick(dateStr)}
-                        >
-                          <span className={`text-xs px-2 py-1 rounded font-medium flex-shrink-0 mt-0.5 ${chipClass}`}>
-                            {isDisinfect ? 'Disinfect' : 'App'}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{a.customer_name}</p>
-                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                              {a.truck_name && <p className="text-xs text-gray-500 dark:text-gray-400">{a.truck_name}</p>}
-                              {a.salesman_name && <p className="text-xs text-gray-400 dark:text-gray-500">{a.salesman_name}</p>}
-                              {!isDisinfect && (a.products ?? []).length > 0 && (
-                                <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{a.products.map(p => p.product).join(', ')}</p>
-                              )}
-                              {a.storage_name && <p className="text-xs text-gray-400 dark:text-gray-500">{a.storage_name}</p>}
-                            </div>
-                            {a.notes && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic truncate">{a.notes}</p>}
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              )
-            })}
-          </div>
-        )
-      })()}
-
-      {/* Legend */}
-      <div className="mt-5 space-y-3">
-        {/* Capacity legend */}
-        {!isApplicator && (
-          <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300 inline-block" />Available</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Full</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 border border-gray-300 inline-block" />Approval required</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded inline-block cal-blackout border border-red-300" />Blocked / Holiday</span>
-          </div>
-        )}
-        {/* Product color guide — show for everyone except viewers */}
-        {!isViewer && (
-          <div>
-            <p className="text-xs font-medium text-gray-400 mb-1.5">Product colors</p>
-            <div className="flex flex-wrap gap-2">
-              {([
-                { label: 'Smart Block',   cls: 'chip-purple'   },
-                { label: '1,4 Zap',       cls: 'chip-yellow'   },
-                { label: 'DMN',           cls: 'chip-brown'    },
-                { label: 'Storox / Perox AG', cls: 'chip-green' },
-                { label: 'Purogene Pro',  cls: 'chip-blue'     },
-                { label: 'CIPC',          cls: 'chip-orange'   },
-                { label: 'Amplify',       cls: 'chip-white'    },
-                { label: 'Fresh Pack 100',cls: 'chip-pink'     },
-                { label: 'Stg Disinfect', cls: 'chip-disinfect'},
-              ] as const).map(({ label, cls }) => (
-                <span key={label} className={`text-xs px-2 py-0.5 rounded font-medium ${cls}`}>
-                  {label}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Modals */}
-      {detailAppt && (
-        <ApptDetailModal appt={detailAppt} onClose={() => setDetailAppt(null)} />
-      )}
-
-
-      {selectedDate && canSchedule && (
-        <AppointmentModal
-          date={selectedDate}
-          appointments={selectedDateAppointments}
-          maxTrucks={selectedDayCapacity.max}
-          isWeekendBlocked={selectedDayCapacity.isWeekendBlocked}
-          blackoutDay={blackoutDays.find(b => b.date === selectedDate) ?? null}
-          currentProfile={profile}
-          trucksForDay={getTrucksForDate(selectedDate)}
-          availableTrucks={getAvailableTrucks(selectedDate)}
-          onClose={() => setSelectedDate(null)}
-          onSuccess={() => { setSelectedDate(null); fetchData() }}
-        />
-      )}
-    </div>
-  )
-}

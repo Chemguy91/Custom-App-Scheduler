@@ -166,7 +166,7 @@ export default function AppointmentModal({
     const isDisinfect = form.jobType === 'stg_disinfect'
 
     if (isAdmin && !form.salesmanId) {
-      setError('Please assign a Sales Manager.')
+      setError('Please assign an Account Manager.')
       return
     }
     if (!isDisinfect && form.selectedProducts.length === 0) {
@@ -399,7 +399,7 @@ export default function AppointmentModal({
               </p>
               <p className={`text-sm mt-1 ${isAdmin ? 'text-orange-600' : 'text-red-600'}`}>
                 {isAdmin
-                  ? 'This day is blocked for salesmen. You can still manage existing appointments.'
+                  ? 'This day is blocked for account managers. You can still manage existing appointments.'
                   : 'This day is blocked. No new applications can be scheduled.'}
               </p>
             </div>
@@ -472,11 +472,11 @@ export default function AppointmentModal({
               </div>
             )}
 
-            {/* Salesman assignment — admin only */}
+            {/* Account Manager assignment — admin only */}
             {isAdmin && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Assign Sales Manager <span className="text-red-500">*</span>
+                  Assign Account Manager <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={form.salesmanId}
@@ -484,7 +484,7 @@ export default function AppointmentModal({
                   required={isAdmin}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  <option value="">— Select a Sales Manager —</option>
+                  <option value="">— Select an Account Manager —</option>
                   {salesManagers.map(sm => (
                     <option key={sm.id} value={sm.id}>{sm.full_name}</option>
                   ))}

@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import Navbar from '@/components/Navbar'
 import AdminPanel from '@/components/AdminPanel'
+import DemoWrapper from '@/components/DemoWrapper'
 import { Profile } from '@/lib/types'
 
 export default async function AdminPage() {
@@ -15,12 +15,11 @@ export default async function AdminPage() {
     .eq('id', user.id)
     .single()
 
-  if (!profile || profile.role !== 'admin') redirect('/calendar')
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'viewer')) redirect('/calendar')
 
   return (
-    <>
-      <Navbar profile={profile as Profile} />
+    <DemoWrapper profile={profile as Profile} userEmail={user.email}>
       <AdminPanel profile={profile as Profile} />
-    </>
+    </DemoWrapper>
   )
 }

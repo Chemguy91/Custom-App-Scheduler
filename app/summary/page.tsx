@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import CalendarView from '@/components/CalendarView'
+import SummaryPanel from '@/components/SummaryPanel'
 import DemoWrapper from '@/components/DemoWrapper'
 import { Profile } from '@/lib/types'
 
-export default async function CalendarPage() {
+export default async function SummaryPage() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -15,11 +15,11 @@ export default async function CalendarPage() {
     .eq('id', user.id)
     .single()
 
-  if (!profile) redirect('/login')
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'viewer')) redirect('/calendar')
 
   return (
     <DemoWrapper profile={profile as Profile} userEmail={user.email}>
-      <CalendarView profile={profile as Profile} />
+      <SummaryPanel />
     </DemoWrapper>
   )
 }

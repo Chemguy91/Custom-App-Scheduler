@@ -4,11 +4,21 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ApprovalRequest, BlackoutDay, CapacityRule, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
+import { useDemoProfile, useDemoPersonas } from './DemoWrapper'
+
+// Safe date formatter — returns '—' for null/empty/invalid dates instead of throwing
+function safeDate(d: string | null | undefined, fmt: string): string {
+  if (!d) return '—'
+  try { return format(parseISO(d), fmt) } catch { return '—' }
+}
+
+const ALL_PRODUCTS = ['Smart Block', '1,4 Zap', 'DMN', 'Storox / Perox AG', 'Purogene Pro', 'CIPC', 'Amplify', 'Fresh Pack 100']
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const WEEKDAYS = [1, 2, 3, 4, 5]
 
-export default function AdminPanel({ profile }: { profile: Profile }) {
+export default function AdminPanel({ profile: serverProfile }: { profile: Profile }) {
+  const profile = useDemoProfile(serverProfile)
   const supabase = createClient()
   const [requests, setRequests] = useState<ApprovalRequest[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -18,7 +28,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
   const [defaultCapacity, setDefaultCapacity] = useState('5')
   const [savingCapacity, setSavingCapacity] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'requests' | 'trucks' | 'capacity' | 'users' | 'settings'>('requests')
+  const [activeTab, setActiveTab] = useState<'requests' | 'trucks' | 'capacity' | 'users' | 'settings' | 'demo'>('requests')
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
   const [newAlert, setNewAlert]           = useState<{ count: number; name: string } | null>(null)
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -255,18 +265,19 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Admin Panel</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Manage requests, capacity rules, users, and settings</p>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Admin Panel</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Manage requests, capacity rules, users, and settings</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 flex-wrap">
+      <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 flex-wrap">
         {([
           { id: 'requests',  label: 'Requests' },
           { id: 'trucks',    label: 'Trucks' },
           { id: 'capacity',  label: 'Capacity' },
           { id: 'users',     label: 'Users' },
           { id: 'settings',  label: 'Settings' },
+          { id: 'demo',      label: '🎯 Demo Mode' },
         ] as const).map(tab => {
           const pending = tab.id === 'requests' ? pendingRequests.length : 0
           return (
@@ -274,7 +285,9 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === tab.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                activeTab === tab.id
+                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
               {tab.label}
@@ -363,9 +376,9 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
                                 <p className="font-medium text-gray-900 mb-1">{rule.name}</p>
                               )}
                               <p className="text-sm text-gray-700">
-                                <span className="font-medium">{format(parseISO(rule.start_date), 'MMM d, yyyy')}</span>
+                                <span className="font-medium">{safeDate(rule.start_date, 'MMM d, yyyy')}</span>
                                 {' → '}
-                                <span className="font-medium">{format(parseISO(rule.end_date), 'MMM d, yyyy')}</span>
+                                <span className="font-medium">{safeDate(rule.end_date, 'MMM d, yyyy')}</span>
                               </p>
                               <div className="flex items-center gap-2 mt-2 flex-wrap">
                                 <div className="flex gap-1">
@@ -481,6 +494,13 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
               </div>
             </div>
           )}
+
+          {/* DEMO MODE TAB */}
+          {activeTab === 'demo' && (
+            <DemoModeTab supabase={supabase} adminId={profile.id} profiles={profiles} trucks={trucks} />
+          )}
+
+
         </>
       )}
 
@@ -515,7 +535,7 @@ export default function AdminPanel({ profile }: { profile: Profile }) {
 
 const ROLE_LABELS_MAP: Record<string, string> = {
   admin:         'Admin',
-  sales_manager: 'Sales Manager',
+  sales_manager: 'Account Manager',
   applicator:    'Applicator',
   viewer:        'Viewer',
 }
@@ -630,7 +650,7 @@ function UsersTab({
                               disabled={isMe}
                               className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                             >
-                              <option value="sales_manager">Sales Manager</option>
+                              <option value="sales_manager">Account Manager</option>
                               <option value="applicator">Applicator</option>
                               <option value="viewer">Viewer</option>
                               <option value="admin">Admin</option>
@@ -676,7 +696,7 @@ function UsersTab({
                           {ROLE_LABELS_MAP[p.role] ?? p.role}{isMe ? ' (you)' : ''}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-500">{format(parseISO(p.created_at), 'MMM d, yyyy')}</td>
+                      <td className="px-4 py-3 text-gray-500">{safeDate(p.created_at, 'MMM d, yyyy')}</td>
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => startEdit(p)}
@@ -785,7 +805,7 @@ function AddUserForm({ onSuccess }: { onSuccess: () => void }) {
             onChange={e => setRole(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="sales_manager">Sales Manager</option>
+            <option value="sales_manager">Account Manager</option>
             <option value="applicator">Applicator</option>
             <option value="viewer">Viewer</option>
             <option value="admin">Admin</option>
@@ -849,7 +869,7 @@ function RoleSelect({
       disabled={saving}
       className={`text-xs font-medium rounded-full px-2 py-0.5 border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 ${ROLE_COLORS[role] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}
     >
-      <option value="sales_manager">Sales Manager</option>
+      <option value="sales_manager">Account Manager</option>
       <option value="applicator">Applicator</option>
       <option value="viewer">Viewer</option>
       <option value="admin">Admin</option>
@@ -1018,9 +1038,9 @@ function TrucksTab({
                   </p>
                   {(t.active_from || t.active_to) && (
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Available: {t.active_from ? format(parseISO(t.active_from), 'MMM d, yyyy') : 'always'}
+                      Available: {t.active_from ? safeDate(t.active_from, 'MMM d, yyyy') : 'always'}
                       {' → '}
-                      {t.active_to ? format(parseISO(t.active_to), 'MMM d, yyyy') : 'no end'}
+                      {t.active_to ? safeDate(t.active_to, 'MMM d, yyyy') : 'no end'}
                     </p>
                   )}
                 </div>
@@ -1366,7 +1386,7 @@ function RequestCard({
             )}
           </div>
           <p className="text-sm text-gray-500 mt-0.5">
-            {req.salesman_name} · {format(parseISO(req.date), 'EEE, MMM d, yyyy')}
+            {req.salesman_name} · {safeDate(req.date, 'EEE, MMM d, yyyy')}
           </p>
           {req.storage_name && (
             <p className="text-xs text-gray-500 mt-0.5">Storage: {req.storage_name}</p>
@@ -1391,7 +1411,7 @@ function RequestCard({
         <div className="mt-3 space-y-2">
           <input
             type="text"
-            placeholder="Optional note to salesman…"
+            placeholder="Optional note to account manager…"
             value={note}
             onChange={e => setNote(e.target.value)}
             className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1401,7 +1421,7 @@ function RequestCard({
           <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
             <span className="text-sm text-gray-700">
               Deduct truck slots from{' '}
-              <span className="font-medium">{format(parseISO(req.date), 'MMM d')}</span>
+              <span className="font-medium">{safeDate(req.date, 'MMM d')}</span>
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -1664,7 +1684,7 @@ function BlackoutDaysManager({
             <div key={b.id} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-lg px-3 py-2">
               <div>
                 <span className="text-sm font-medium text-gray-900">
-                  {format(parseISO(b.date), 'EEE, MMM d, yyyy')}
+                  {safeDate(b.date, 'EEE, MMM d, yyyy')}
                 </span>
                 {b.reason && (
                   <span className="ml-2 text-sm text-red-700">{b.reason}</span>
@@ -1686,56 +1706,495 @@ function BlackoutDaysManager({
   )
 }
 
-// ─── Capacity Override (exact date) ──────────────────────────────────────────
+// ─── Demo Mode Tab ───────────────────────────────────────────────────────────
 
-function CapacityOverride({ supabase, adminId }: { supabase: ReturnType<typeof createClient>, adminId: string }) {
-  const [date, setDate] = useState('')
-  const [max, setMax] = useState('5')
-  const [saving, setSaving] = useState(false)
-  const [msg, setMsg] = useState('')
+interface DemoAppt {
+  id: string
+  date: string
+  job_type: string
+  customer_name: string
+  storage_name: string | null
+  cwt: number | null
+  products: { product: string; rate: string }[]
+  status: string
+  salesman_id: string | null
+  truck_id: string | null
+}
 
-  async function save() {
-    if (!date) return
-    setSaving(true)
-    setMsg('')
-    const { error } = await supabase
-      .from('daily_capacity')
-      .upsert({ date, max_trucks: parseInt(max), set_by: adminId }, { onConflict: 'date' })
-    setSaving(false)
-    setMsg(error ? `Error: ${error.message}` : `Saved: ${date} → ${max} applications`)
-    if (!error) { setDate(''); setMax('5') }
+const blankDemo = (defaultSalesmanId = '', defaultTruckId = '') => ({
+  date: '',
+  job_type: 'application' as 'application' | 'stg_disinfect',
+  customer_name: '',
+  storage_name: '',
+  cwt: '',
+  product: ALL_PRODUCTS[0],
+  rate: '',
+  salesman_id: defaultSalesmanId,
+  truck_id: defaultTruckId,
+})
+
+const DEMO_SALESMEN = ['Jake Reynolds', 'Sarah Torres', 'Ben Kohler']
+
+function DemoModeTab({ supabase, adminId, profiles, trucks }: { supabase: ReturnType<typeof createClient>; adminId: string; profiles: Profile[]; trucks: Truck[] }) {
+  // Use real profiles if available, else fall back to 3 hardcoded demo names
+  const salesManagers = profiles.filter(p => p.role === 'sales_manager')
+  const salesmenOptions: { id: string; name: string }[] = salesManagers.length > 0
+    ? salesManagers.map(p => ({ id: p.id, name: p.full_name }))
+    : DEMO_SALESMEN.map((name) => ({ id: adminId, name }))
+  const applicators = profiles.filter(p => p.role === 'applicator')
+  const { demoSalesmanId, demoApplicatorId, setDemoSalesmanId, setDemoApplicatorId } = useDemoPersonas()
+  const [appts,      setAppts]      = useState<DemoAppt[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [saving,     setSaving]     = useState(false)
+  const [editingId,  setEditingId]  = useState<string | null>(null)
+  const [form,       setForm]       = useState(() => blankDemo(salesmenOptions[0]?.id ?? adminId, trucks[0]?.id ?? ''))
+  const [msg,        setMsg]        = useState('')
+
+  async function fetchDemo() {
+    setLoading(true)
+    const { data } = await supabase
+      .from('appointments')
+      .select('id, date, job_type, customer_name, storage_name, cwt, products, status, salesman_id, truck_id')
+      .eq('is_demo', true)
+      .order('date')
+    setAppts((data as DemoAppt[]) ?? [])
+    setLoading(false)
   }
 
+  useEffect(() => { fetchDemo() }, [])
+
+  function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })) }
+
+  function startEdit(a: DemoAppt) {
+    setEditingId(a.id)
+    setMsg('')
+    setForm({
+      date:         a.date || '',
+      job_type:     (a.job_type as 'application' | 'stg_disinfect') || 'application',
+      customer_name: a.customer_name,
+      storage_name: a.storage_name || '',
+      cwt:          a.cwt != null ? String(a.cwt) : '',
+      product:      a.products?.[0]?.product || ALL_PRODUCTS[0],
+      rate:         a.products?.[0]?.rate || '',
+      salesman_id:  a.salesman_id || salesmenOptions[0]?.id || adminId,
+      truck_id:     a.truck_id || trucks[0]?.id || '',
+    })
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setMsg('')
+    setForm(blankDemo(salesmenOptions[0]?.id ?? adminId, trucks[0]?.id ?? ''))
+  }
+
+  async function saveJob() {
+    if (!form.date || !form.customer_name) { setMsg('Date and customer are required.'); return }
+    const salesmanId = form.salesman_id || adminId
+    setSaving(true); setMsg('')
+    const isDisinfect = form.job_type === 'stg_disinfect'
+    const payload = {
+      date:         form.date,
+      salesman_id:  salesmanId,
+      truck_id:     form.truck_id || null,
+      job_type:     form.job_type,
+      customer_name: form.customer_name,
+      storage_name: form.storage_name || null,
+      cwt:          form.cwt ? Number(form.cwt) : null,
+      products:     isDisinfect ? [] : [{ product: form.product, rate: form.rate }],
+      slot_count:   isDisinfect ? 0 : 1,
+    }
+    let error
+    if (editingId) {
+      const res = await supabase.from('appointments').update(payload).eq('id', editingId)
+      error = res.error
+    } else {
+      const res = await supabase.from('appointments').insert({ ...payload, status: 'approved', is_demo: true })
+      error = res.error
+    }
+    setSaving(false)
+    if (error) { setMsg(`Error: ${error.message}`); return }
+    setEditingId(null)
+    setForm(blankDemo(salesmenOptions[0]?.id ?? adminId, trucks[0]?.id ?? ''))
+    fetchDemo()
+  }
+
+  async function deleteJob(id: string) {
+    await supabase.from('appointments').delete().eq('id', id)
+    fetchDemo()
+  }
+
+  async function clearAll() {
+    if (!confirm('Delete all demo jobs?')) return
+    await supabase.from('appointments').delete().eq('is_demo', true)
+    fetchDemo()
+  }
+
+  const inputCls = 'border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 w-full'
+
   return (
-    <div className="flex items-end gap-3 flex-wrap">
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+    <div className="space-y-5">
+      {/* Demo persona selectors */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Demo Personas</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          Choose which user "My Jobs" filters to when viewing as Account Manager or Applicator.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Account Manager persona</label>
+            <select
+              value={demoSalesmanId ?? ''}
+              onChange={e => setDemoSalesmanId(e.target.value)}
+              className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 w-full"
+            >
+              <option value="">— None selected —</option>
+              {salesmenOptions.map(s => <option key={s.id + s.name} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Applicator persona</label>
+            <select
+              value={demoApplicatorId ?? ''}
+              onChange={e => setDemoApplicatorId(e.target.value)}
+              className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 w-full"
+            >
+              <option value="">— None selected —</option>
+              {applicators.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+            </select>
+          </div>
+        </div>
       </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Max Applications</label>
-        <input
-          type="number"
-          min={0}
-          max={50}
-          value={max}
-          onChange={e => setMax(e.target.value)}
-          className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+
+      <div className="bg-amber-50 dark:bg-amber-950 rounded-xl border border-amber-200 dark:border-amber-800 p-5">
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Demo Mode Schedule</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          Jobs added here only appear in demo mode — never in the real calendar.
+        </p>
+
+        {/* Add job form */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Date *</label>
+            <input type="date" value={form.date} onChange={e => set('date', e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Job Type</label>
+            <select value={form.job_type} onChange={e => set('job_type', e.target.value)} className={inputCls}>
+              <option value="application">Application</option>
+              <option value="stg_disinfect">Stg Disinfect</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Account Manager</label>
+            <select value={form.salesman_id} onChange={e => set('salesman_id', e.target.value)} className={inputCls}>
+              {salesmenOptions.map(s => <option key={s.id + s.name} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Truck</label>
+            <select value={form.truck_id} onChange={e => set('truck_id', e.target.value)} className={inputCls}>
+              <option value="">— No truck —</option>
+              {trucks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Customer *</label>
+            <input type="text" value={form.customer_name} onChange={e => set('customer_name', e.target.value)} placeholder="Johnson Farms" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Storage Name</label>
+            <input type="text" value={form.storage_name} onChange={e => set('storage_name', e.target.value)} placeholder="North Bin" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">CWT</label>
+            <input type="number" value={form.cwt} onChange={e => set('cwt', e.target.value)} placeholder="25000" className={inputCls} />
+          </div>
+          {form.job_type === 'application' && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Product</label>
+                <select value={form.product} onChange={e => set('product', e.target.value)} className={inputCls}>
+                  {ALL_PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Rate</label>
+                <input type="text" value={form.rate} onChange={e => set('rate', e.target.value)} placeholder="0.5 oz/cwt" className={inputCls} />
+              </div>
+            </>
+          )}
+        </div>
+
+        {msg && <p className="text-sm text-red-600 mt-2">{msg}</p>}
+
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={saveJob}
+            disabled={saving}
+            className="bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            {saving ? (editingId ? 'Saving…' : 'Adding…') : (editingId ? 'Update Job' : '+ Add Demo Job')}
+          </button>
+          {editingId && (
+            <button
+              onClick={cancelEdit}
+              className="border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+          {!editingId && appts.length > 0 && (
+            <button
+              onClick={clearAll}
+              className="border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-950 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              Clear All Demo Jobs
+            </button>
+          )}
+        </div>
       </div>
-      <button
-        onClick={save}
-        disabled={saving || !date}
-        className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-      >
-        {saving ? 'Saving…' : 'Set override'}
-      </button>
-      {msg && <p className="text-sm text-gray-600 w-full">{msg}</p>}
+
+      {/* Existing demo jobs */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700">
+          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+            Current Demo Jobs {!loading && `(${appts.length})`}
+          </h4>
+        </div>
+        {loading && <div className="text-center py-8 text-gray-400 text-sm">Loading…</div>}
+        {!loading && appts.length === 0 && (
+          <div className="text-center py-8 text-gray-400 text-sm">No demo jobs yet — add one above.</div>
+        )}
+        {!loading && appts.map(a => (
+          <div
+            key={a.id}
+            className={`flex items-center justify-between px-5 py-3 border-b border-gray-50 dark:border-gray-800 last:border-0 ${editingId === a.id ? 'bg-amber-50 dark:bg-amber-950/20' : ''}`}
+          >
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-gray-500 dark:text-gray-400 w-24 shrink-0">{safeDate(a.date, 'MMM d, yyyy')}</span>
+              <span className="font-medium text-gray-900 dark:text-white">{a.customer_name}</span>
+              {(() => {
+                const match = salesmenOptions.find(s => s.id === a.salesman_id)
+                return match ? <span className="text-gray-400 dark:text-gray-500 text-xs">{match.name}</span> : null
+              })()}
+              {a.truck_id && (
+                <span className="text-gray-400 dark:text-gray-500 text-xs">{trucks.find(t => t.id === a.truck_id)?.name ?? ''}</span>
+              )}
+              {a.products?.length > 0 && (
+                <span className="text-gray-400 dark:text-gray-500 text-xs">{a.products[0].product}</span>
+              )}
+              {a.job_type === 'stg_disinfect' && (
+                <span className="text-xs text-green-700 dark:text-green-400">Stg Disinfect</span>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => startEdit(a)}
+                className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-200 transition-colors"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => deleteJob(a.id)}
+                className="text-xs text-red-500 hover:text-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Applicator list */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-700">
+          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+            Applicators ({applicators.length})
+          </h4>
+        </div>
+        {applicators.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm">No applicators found.</div>
+        ) : (
+          applicators.map(a => {
+            const assignedTruck = trucks.find(t => t.applicator_id === a.id)
+            return (
+              <div key={a.id} className="flex items-center justify-between px-5 py-3 border-b border-gray-50 dark:border-gray-800 last:border-0 text-sm">
+                <span className="font-medium text-gray-900 dark:text-white">{a.full_name}</span>
+                {assignedTruck ? (
+                  <span className="text-gray-400 dark:text-gray-500 text-xs">{assignedTruck.name}</span>
+                ) : (
+                  <span className="text-gray-300 dark:text-gray-600 text-xs italic">No truck assigned</span>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
     </div>
   )
 }
+
+// ─── Monthly Summary Tab ─────────────────────────────────────────────────────
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const YEARS  = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i)
+
+const PRODUCT_CHIP: Record<string, string> = {
+  'Stg Disinfect': 'chip-disinfect',
+  'Smart Block':   'chip-purple',
+  '1,4 Zap':       'chip-yellow',
+  'DMN':           'chip-brown',
+  'Storox / Perox AG': 'chip-green',
+  'Purogene Pro':  'chip-blue',
+  'CIPC':          'chip-orange',
+  'Amplify':       'chip-white',
+  'Fresh Pack 100':'chip-pink',
+}
+
+function chipForProduct(name: string): string {
+  for (const [key, cls] of Object.entries(PRODUCT_CHIP)) {
+    if (name.toLowerCase().includes(key.toLowerCase())) return cls
+  }
+  return 'chip-default'
+}
+
+interface SummaryRow {
+  product:   string
+  count:     number
+  totalCwt:  number
+  customers: { date: string; customer: string; cwt: number | null; salesman: string | null }[]
+}
+
+function SummaryTab({ supabase }: { supabase: ReturnType<typeof createClient> }) {
+  const now    = new Date()
+  const [month,    setMonth]    = useState(now.getMonth() + 1)
+  const [year,     setYear]     = useState(now.getFullYear())
+  const [rows,     setRows]     = useState<SummaryRow[]>([])
+  const [totalJobs,setTotalJobs]= useState(0)
+  const [loading,  setLoading]  = useState(true)
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      setExpanded(null)
+      const monthStr  = String(month).padStart(2, '0')
+      const startDate = `${year}-${monthStr}-01`
+      const lastDay   = new Date(year, month, 0).getDate()
+      const endDate   = `${year}-${monthStr}-${lastDay}`
+
+      const { data } = await supabase
+        .from('appointments_with_details')
+        .select('date, job_type, products, customer_name, cwt, salesman_name, status')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .neq('status', 'rejected')
+
+      if (!data) { setLoading(false); return }
+
+      const map = new Map<string, SummaryRow>()
+
+      for (const appt of data) {
+        const entry = {
+          date:     appt.date,
+          customer: appt.customer_name,
+          cwt:      appt.cwt ?? null,
+          salesman: appt.salesman_name ?? null,
+        }
+
+        const cwtVal = appt.cwt ?? 0
+
+        if (appt.job_type === 'stg_disinfect') {
+          const key = 'Stg Disinfect'
+          if (!map.has(key)) map.set(key, { product: key, count: 0, totalCwt: 0, customers: [] })
+          const r = map.get(key)!
+          r.count++
+          r.totalCwt += cwtVal
+          r.customers.push(entry)
+        } else {
+          const products: { product: string }[] = appt.products ?? []
+          if (products.length === 0) {
+            const key = 'Unknown'
+            if (!map.has(key)) map.set(key, { product: key, count: 0, totalCwt: 0, customers: [] })
+            const r = map.get(key)!
+            r.count++
+            r.totalCwt += cwtVal
+            r.customers.push(entry)
+          } else {
+            for (const p of products) {
+              const key = p.product
+              if (!map.has(key)) map.set(key, { product: key, count: 0, totalCwt: 0, customers: [] })
+              const r = map.get(key)!
+              r.count++
+              r.totalCwt += cwtVal
+              r.customers.push(entry)
+            }
+          }
+        }
+      }
+
+      const sorted = Array.from(map.values()).sort((a, b) => b.count - a.count)
+      setRows(sorted)
+      setTotalJobs(data.length)
+      setLoading(false)
+    }
+    load()
+  }, [year, month, supabase])
+
+  return (
+    <div className="space-y-5">
+      {/* Month / Year picker */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3 flex-wrap">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Month:</span>
+        <select
+          value={month}
+          onChange={e => setMonth(Number(e.target.value))}
+          className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+        </select>
+        <select
+          value={year}
+          onChange={e => setYear(Number(e.target.value))}
+          className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <span className="ml-auto text-sm text-gray-500 dark:text-gray-400">
+          {loading ? 'Loading…' : `${totalJobs} total job${totalJobs !== 1 ? 's' : ''}`}
+        </span>
+      </div>
+
+      {/* Empty state */}
+      {!loading && rows.length === 0 && (
+        <div className="text-center py-16 text-gray-400 dark:text-gray-600 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
+          No applications found for {MONTHS[month - 1]} {year}.
+        </div>
+      )}
+
+      {/* Product rows */}
+      {!loading && rows.map(row => {
+        const chipClass = chipForProduct(row.product)
+        const isOpen    = expanded === row.product
+        return (
+          <div key={row.product} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <button
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
+              onClick={() => setExpanded(isOpen ? null : row.product)}
+            >
+              <div className="flex items-center gap-3">
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${chipClass}`}>
+                  {row.product}
+                </span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  {row.count} application{row.count !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {row.count} job{row.count !== 1 ? 's' : ''}
+                </span>
+                {row.totalCwt > 0 && (
+                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                    {row.totalCwt.toLocaleString()} CWT
+                
