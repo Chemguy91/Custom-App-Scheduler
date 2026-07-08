@@ -23,6 +23,13 @@ const PRODUCT_RATES: Record<string, string[]> = {
   'Fresh Pack 100':  ['1:14,000','1:1,500','1:1,400','1:1,200','1:1,000','1:600'],
 }
 
+const DISINFECT_PRODUCTS = ['SanoQuat', 'Green Clean Pro']
+
+const DISINFECT_RATES: Record<string, string[]> = {
+  'SanoQuat':        ['200 PPM'],
+  'Green Clean Pro': ['1:1000'],
+}
+
 interface ProductEntry { product: string; rate: string }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -198,7 +205,7 @@ export default function AppointmentModal({
       job_type:          'stg_disinfect',
       storage_capacity:  form.storageCapacity ? parseFloat(form.storageCapacity) : null,
       cwt:               null,
-      products:          [],
+      products:          form.selectedProducts,
       truck_id:          null,
       slot_count:        isAdmin ? form.slotCount : 0,
     } : {
@@ -463,7 +470,7 @@ export default function AppointmentModal({
                   <button
                     key={t}
                     type="button"
-                    onClick={() => { set('jobType', t); set('slotCount', t === 'stg_disinfect' ? 0 : 1); setError('') }}
+                    onClick={() => { set('jobType', t); set('slotCount', t === 'stg_disinfect' ? 0 : 1); set('selectedProducts', []); setError('') }}
                     className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
                       form.jobType === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
                     }`}
@@ -604,6 +611,60 @@ export default function AppointmentModal({
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="e.g. 100000"
                 />
+              </div>
+            )}
+
+            {/* Stg Disinfect: Product */}
+            {isDisinfectForm && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Product <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+
+                {/* Selected disinfect products */}
+                {form.selectedProducts.length > 0 && (
+                  <div className="space-y-2 mb-2">
+                    {form.selectedProducts.map(({ product, rate }) => (
+                      <div key={product} className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                        <span className="text-sm font-medium text-green-800 flex-1 min-w-0 truncate">{product}</span>
+                        <select
+                          value={rate}
+                          onChange={e => setRate(product, e.target.value)}
+                          className="border border-green-200 rounded-md px-2 py-1 text-xs bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        >
+                          {(DISINFECT_RATES[product] ?? [rate]).map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => toggleProduct(product)}
+                          className="text-green-400 hover:text-red-500 transition-colors text-lg leading-none shrink-0"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {form.selectedProducts.length < DISINFECT_PRODUCTS.length && (
+                  <select
+                    value=""
+                    onChange={e => {
+                      if (!e.target.value) return
+                      const product = e.target.value
+                      const rate = DISINFECT_RATES[product]?.[0] ?? ''
+                      set('selectedProducts', [...form.selectedProducts, { product, rate }])
+                    }}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-500"
+                  >
+                    <option value="">+ Add product…</option>
+                    {DISINFECT_PRODUCTS.filter(p => !isSelected(p)).map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             )}
 

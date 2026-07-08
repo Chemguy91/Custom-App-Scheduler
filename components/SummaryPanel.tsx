@@ -92,7 +92,11 @@ export default function SummaryPanel() {
           const r = map.get(key)!
           r.count++
           r.totalCwt += cwtVal
-          r.customers.push({ date: appt.date, customer: appt.customer_name, storage: appt.storage_name ?? null, rate: null, cwt: effectiveCwt, salesman: appt.salesman_name ?? null, notes: appt.notes ?? null })
+          const disinfectProducts: { product: string; rate?: string }[] = appt.products ?? []
+          const productNote = disinfectProducts.length > 0
+            ? disinfectProducts.map(p => p.rate ? `${p.product} (${p.rate})` : p.product).join(', ')
+            : null
+          r.customers.push({ date: appt.date, customer: appt.customer_name, storage: appt.storage_name ?? null, rate: productNote, cwt: effectiveCwt, salesman: appt.salesman_name ?? null, notes: appt.notes ?? null })
         } else {
           const products: { product: string; rate?: string }[] = appt.products ?? []
           if (products.length === 0) {
