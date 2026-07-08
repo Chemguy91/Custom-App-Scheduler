@@ -143,13 +143,13 @@ export default function SummaryPanel() {
 
   // ── CSV export ──────────────────────────────────────────────────────────────
   function exportCSV() {
-    const headers = ['Product', 'Date', 'Customer', 'Storage', 'Rate', 'CWT', 'Account Manager']
+    const headers = ['Product', 'Date', 'Customer', 'Storage', 'Rate', 'CWT', 'Account Manager', 'Notes']
     const csvRows = [headers.join(',')]
     const exportRows = isSearching ? filteredRows : rows
     for (const row of exportRows) {
       for (const c of row.customers.slice().sort((a, b) => a.date.localeCompare(b.date))) {
         csvRows.push([
-          row.product, c.date, c.customer, c.storage ?? '', c.rate ?? '', c.cwt ?? '', c.salesman ?? '',
+          row.product, c.date, c.customer, c.storage ?? '', c.rate ?? '', c.cwt ?? '', c.salesman ?? '', c.notes ?? '',
         ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
       }
     }
