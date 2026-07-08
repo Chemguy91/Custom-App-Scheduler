@@ -701,10 +701,10 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                           draggable={draggable}
                           onDragStart={draggable ? e => handleDragStart(e, a) : undefined}
                           onDragEnd={draggable ? handleDragEnd : undefined}
-                          onClick={e => { e.stopPropagation(); if (isApplicator) setDetailAppt(a) }}
+                          onClick={e => { e.stopPropagation(); if (isApplicator || isViewer) setDetailAppt(a) }}
                           className={`text-xs truncate rounded px-1 py-0.5 select-none ${chipClass}
                             ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}
-                            ${isApplicator ? 'cursor-pointer hover:opacity-80' : ''}
+                            ${(isApplicator || isViewer) ? 'cursor-pointer hover:opacity-80' : ''}
                             ${draggedAppt?.id === a.id ? 'opacity-40' : ''}
                           `}
                         >
@@ -789,8 +789,8 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                     return (
                       <div
                         key={a.id}
-                        onClick={e => { e.stopPropagation(); if (isApplicator) setDetailAppt(a) }}
-                        className={`text-xs rounded px-1.5 py-1 ${chipClass} ${isApplicator ? 'cursor-pointer hover:opacity-80' : ''}`}
+                        onClick={e => { e.stopPropagation(); if (isApplicator || isViewer) setDetailAppt(a) }}
+                        className={`text-xs rounded px-1.5 py-1 ${chipClass} ${(isApplicator || isViewer) ? 'cursor-pointer hover:opacity-80' : ''}`}
                       >
                         <p className="font-medium truncate">{a.customer_name}</p>
                         {a.truck_name && <p className="opacity-70 truncate">{a.truck_name}</p>}
@@ -873,7 +873,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                         <li
                           key={a.id}
                           className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
-                          onClick={() => isApplicator ? setDetailAppt(a) : handleDayClick(dateStr)}
+                          onClick={() => (isApplicator || isViewer) ? setDetailAppt(a) : handleDayClick(dateStr)}
                         >
                           <span className={`text-xs px-2 py-1 rounded font-medium flex-shrink-0 mt-0.5 ${chipClass}`}>
                             {isDisinfect ? 'Disinfect' : 'App'}
