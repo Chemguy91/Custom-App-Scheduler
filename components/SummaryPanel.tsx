@@ -31,7 +31,7 @@ interface SummaryRow {
   product:  string
   count:    number
   totalCwt: number
-  customers: { date: string; customer: string; storage: string | null; rate: string | null; cwt: number | null; salesman: string | null }[]
+  customers: { date: string; customer: string; storage: string | null; rate: string | null; cwt: number | null; salesman: string | null; notes: string | null }[]
 }
 
 const selectCls = 'border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500'
@@ -72,7 +72,7 @@ export default function SummaryPanel() {
 
       const { data } = await supabase
         .from('appointments_with_details')
-        .select('date, job_type, products, customer_name, storage_name, cwt, storage_capacity, salesman_name, status')
+        .select('date, job_type, products, customer_name, storage_name, cwt, storage_capacity, salesman_name, status, notes')
         .gte('date', startDate)
         .lte('date', endDate)
         .neq('status', 'rejected')
@@ -92,7 +92,7 @@ export default function SummaryPanel() {
           const r = map.get(key)!
           r.count++
           r.totalCwt += cwtVal
-          r.customers.push({ date: appt.date, customer: appt.customer_name, storage: appt.storage_name ?? null, rate: null, cwt: effectiveCwt, salesman: appt.salesman_name ?? null })
+          r.customers.push({ date: appt.date, customer: appt.customer_name, storage: appt.storage_name ?? null, rate: null, cwt: effectiveCwt, salesman: appt.salesman_name ?? null, notes: appt.notes ?? null })
         } else {
           const products: { product: string; rate?: string }[] = appt.products ?? []
           if (products.length === 0) {
@@ -101,7 +101,7 @@ export default function SummaryPanel() {
             const r = map.get(key)!
             r.count++
             r.totalCwt += cwtVal
-            r.customers.push({ date: appt.date, customer: appt.customer_name, storage: appt.storage_name ?? null, rate: null, cwt: appt.cwt ?? null, salesman: appt.salesman_name ?? null })
+            r.customers.push({ date: appt.date, customer: appt.customer_name, storage: appt.storage_name ?? null, rate: null, cwt: appt.cwt ?? null, salesman: appt.salesman_name ?? null, notes: appt.notes ?? null })
           } else {
             for (const p of products) {
               const key = p.product
@@ -109,7 +109,7 @@ export default function SummaryPanel() {
               const r = map.get(key)!
               r.count++
               r.totalCwt += cwtVal
-              r.customers.push({ date: appt.date, customer: appt.customer_name, storage: appt.storage_name ?? null, rate: p.rate ?? null, cwt: appt.cwt ?? null, salesman: appt.salesman_name ?? null })
+              r.customers.push({ date: appt.date, customer: appt.customer_name, storage: appt.storage_name ?? null, rate: p.rate ?? null, cwt: appt.cwt ?? null, salesman: appt.salesman_name ?? null, notes: appt.notes ?? null })
             }
           }
         }
@@ -132,7 +132,8 @@ export default function SummaryPanel() {
         ...row,
         customers: row.customers.filter(c =>
           c.customer.toLowerCase().includes(q) ||
-          (c.storage ?? '').toLowerCase().includes(q)
+          (c.storage ?? '').toLowerCase().includes(q) ||
+          (c.notes ?? '').toLowerCase().includes(q)
         ),
       }))
       .filter(row => row.customers.length > 0)
@@ -311,6 +312,7 @@ export default function SummaryPanel() {
                       <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">Rate</th>
                       <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">CWT</th>
                       <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">Account Manager</th>
+                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -321,6 +323,7 @@ export default function SummaryPanel() {
                         const q = search.trim().toLowerCase()
                         const highlightCustomer = q && c.customer.toLowerCase().includes(q)
                         const highlightStorage  = q && (c.storage ?? '').toLowerCase().includes(q)
+                        const highlightNotes    = q && (c.notes ?? '').toLowerCase().includes(q)
                         return (
                           <tr key={i} className="border-b border-gray-50 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800">
                             <td className="px-5 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
@@ -335,6 +338,9 @@ export default function SummaryPanel() {
                             <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400">{c.rate ?? '—'}</td>
                             <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400">{c.cwt != null ? c.cwt.toLocaleString() : '—'}</td>
                             <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400">{c.salesman ?? '—'}</td>
+                            <td className={`px-4 py-2.5 text-xs max-w-[180px] ${highlightNotes ? 'text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-gray-500'}`}>
+                              {c.notes ?? '—'}
+                            </td>
                           </tr>
                         )
                       })}

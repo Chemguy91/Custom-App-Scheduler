@@ -15,7 +15,7 @@ export default async function SummaryPage() {
     .eq('id', user.id)
     .single()
 
-  if (!profile || (profile.role !== 'admin' && profile.role !== 'viewer')) redirect('/calendar')
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'viewer' && profile.role !== 'sales_manager')) redirect('/calendar')
 
   return (
     <DemoWrapper profile={profile as Profile} userEmail={user.email}>
