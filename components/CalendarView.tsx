@@ -951,6 +951,8 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
           availableTrucks={getAvailableTrucks(selectedDate)}
           onClose={() => setSelectedDate(null)}
           onSuccess={() => { setSelectedDate(null); fetchData() }}
+          isDemo={isDemo}
+          salesmanIdOverride={isDemo && demoSalesmanId ? demoSalesmanId : undefined}
         />
       )}
     </div>

@@ -47,6 +47,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
       supabase
         .from('approval_requests')
         .select(`*, profiles!approval_requests_salesman_id_fkey(full_name)`)
+        .eq('is_demo', isDemo)
         .order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').order('full_name'),
       supabase.from('capacity_rules').select('*').order('created_at', { ascending: false }),

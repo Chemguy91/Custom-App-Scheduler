@@ -38,6 +38,8 @@ interface Props {
   availableTrucks: Truck[]
   onClose: () => void
   onSuccess: () => void
+  isDemo?: boolean
+  salesmanIdOverride?: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,6 +87,8 @@ export default function AppointmentModal({
   availableTrucks,
   onClose,
   onSuccess,
+  isDemo = false,
+  salesmanIdOverride,
 }: Props) {
   const supabase = createClient()
   const isAdmin = currentProfile.role === 'admin'
@@ -208,7 +212,9 @@ export default function AppointmentModal({
     }
 
     // Resolve which salesman owns this job
-    const resolvedSalesmanId = isAdmin && form.salesmanId ? form.salesmanId : currentProfile.id
+    // In demo mode, use the selected persona id; otherwise fall back to current user
+    const effectiveSalesmanId = salesmanIdOverride ?? currentProfile.id
+    const resolvedSalesmanId = isAdmin && form.salesmanId ? form.salesmanId : effectiveSalesmanId
 
     try {
       if (editing) {
@@ -219,19 +225,20 @@ export default function AppointmentModal({
       } else if (isDisinfect && !isAdmin) {
         // Stg Disinfect from sales manager → always goes to admin approval
         const { error } = await supabase.from('approval_requests').insert({
-          salesman_id:      currentProfile.id,
+          salesman_id:      effectiveSalesmanId,
           date,
           job_type:         'stg_disinfect',
           customer_name:    form.customerName,
           storage_name:     form.storageName,
           storage_capacity: form.storageCapacity ? parseFloat(form.storageCapacity) : null,
           notes:            form.notes,
+          is_demo:          isDemo,
         })
         if (error) throw error
       } else if (!isDisinfect && isFull && !isAdmin) {
         // Application that's over capacity → approval request
         const { error } = await supabase.from('approval_requests').insert({
-          salesman_id:   currentProfile.id,
+          salesman_id:   effectiveSalesmanId,
           date,
           job_type:      'application',
           customer_name: form.customerName,
@@ -240,6 +247,7 @@ export default function AppointmentModal({
           products:      form.selectedProducts,
           notes:         form.notes,
           truck_id:      truckId,
+          is_demo:       isDemo,
         })
         if (error) throw error
       } else {
@@ -248,6 +256,7 @@ export default function AppointmentModal({
           date,
           salesman_id: resolvedSalesmanId,
           status:      'confirmed',
+          is_demo:     isDemo,
           ...appPayload,
         })
         if (error) throw error
