@@ -568,13 +568,15 @@ function UsersTab({
   supabase: ReturnType<typeof createClient>
   onRefresh: () => void
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editName, setEditName]   = useState('')
-  const [editRole, setEditRole]   = useState('')
-  const [editPass, setEditPass]   = useState('')
-  const [saving, setSaving]       = useState(false)
-  const [msg, setMsg]             = useState('')
-  const [isError, setIsError]     = useState(false)
+  const [editingId, setEditingId]       = useState<string | null>(null)
+  const [editName, setEditName]         = useState('')
+  const [editRole, setEditRole]         = useState('')
+  const [editPass, setEditPass]         = useState('')
+  const [saving, setSaving]             = useState(false)
+  const [msg, setMsg]                   = useState('')
+  const [isError, setIsError]           = useState(false)
+  const [deletingId, setDeletingId]     = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   function startEdit(p: Profile) {
     setEditingId(p.id)
@@ -587,6 +589,27 @@ function UsersTab({
   function cancelEdit() {
     setEditingId(null)
     setMsg('')
+  }
+
+  async function deleteUser(userId: string) {
+    setDeletingId(userId)
+    const res = await fetch('/api/delete-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+    const data = await res.json()
+    setDeletingId(null)
+    setDeleteConfirmId(null)
+    if (!res.ok) {
+      setIsError(true)
+      setMsg(data.error ?? 'Failed to delete user.')
+    } else {
+      setMsg('User deleted.')
+      setIsError(false)
+      onRefresh()
+      setTimeout(() => setMsg(''), 3000)
+    }
   }
 
   async function saveEdit() {
@@ -708,12 +731,41 @@ function UsersTab({
                       </td>
                       <td className="px-4 py-3 text-gray-500">{safeDate(p.created_at, 'MMM d, yyyy')}</td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => startEdit(p)}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          Edit
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => startEdit(p)}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                          >
+                            Edit
+                          </button>
+                          {!isMe && (
+                            deleteConfirmId === p.id ? (
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-xs text-gray-500">Sure?</span>
+                                <button
+                                  onClick={() => deleteUser(p.id)}
+                                  disabled={deletingId === p.id}
+                                  className="text-xs text-red-600 hover:text-red-800 font-medium disabled:opacity-50"
+                                >
+                                  {deletingId === p.id ? 'Deleting…' : 'Yes, delete'}
+                                </button>
+                                <button
+                                  onClick={() => setDeleteConfirmId(null)}
+                                  className="text-xs text-gray-400 hover:text-gray-600"
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => setDeleteConfirmId(p.id)}
+                                className="text-xs text-red-400 hover:text-red-600 font-medium"
+                              >
+                                Delete
+                              </button>
+                            )
+                          )}
+                        </div>
                       </td>
                     </>
                   )}

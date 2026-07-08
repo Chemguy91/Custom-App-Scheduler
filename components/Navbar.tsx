@@ -73,6 +73,9 @@ export default function Navbar({ profile }: { profile: Profile }) {
               Summary
             </Link>
           )}
+          <Link href="/account" className="text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">
+            Change Password
+          </Link>
         </div>
 
         <div className="flex items-center gap-3">
