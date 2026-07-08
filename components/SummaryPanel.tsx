@@ -56,7 +56,7 @@ export default function SummaryPanel() {
 
       const { data } = await supabase
         .from('appointments_with_details')
-        .select('date, job_type, products, customer_name, storage_name, cwt, salesman_name, status')
+        .select('date, job_type, products, customer_name, storage_name, cwt, storage_capacity, salesman_name, status')
         .gte('date', startDate)
         .lte('date', endDate)
         .neq('status', 'rejected')
@@ -67,7 +67,8 @@ export default function SummaryPanel() {
       const map = new Map<string, SummaryRow>()
 
       for (const appt of data) {
-        const cwtVal = appt.cwt ?? 0
+        const effectiveCwt = appt.cwt ?? (appt.job_type === 'stg_disinfect' ? (appt.storage_capacity ?? null) : null)
+        const cwtVal = effectiveCwt ?? 0
 
         if (appt.job_type === 'stg_disinfect') {
           const key = 'Stg Disinfect'
@@ -80,7 +81,7 @@ export default function SummaryPanel() {
             customer: appt.customer_name,
             storage:  appt.storage_name ?? null,
             rate:     null,
-            cwt:      appt.cwt ?? null,
+            cwt:      effectiveCwt,
             salesman: appt.salesman_name ?? null,
           })
         } else {
