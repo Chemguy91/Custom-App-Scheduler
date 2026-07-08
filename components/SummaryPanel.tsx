@@ -141,25 +141,89 @@ export default function SummaryPanel() {
 
   const isSearching = search.trim().length > 0
 
-  // ── CSV export ──────────────────────────────────────────────────────────────
-  function exportCSV() {
-    const headers = ['Product', 'Date', 'Customer', 'Storage', 'Rate', 'CWT', 'Account Manager', 'Notes']
-    const csvRows = [headers.join(',')]
+  // ── Excel export ─────────────────────────────────────────────────────────────
+  async function exportXLSX() {
+    const XLSX = (await import('xlsx-js-style')).default
+
+    const HEADERS = ['Product', 'Date', 'Customer', 'Storage', 'Rate', 'CWT', 'Account Manager', 'Notes']
+    const COL_WIDTHS = [16, 13, 24, 22, 13, 11, 20, 40]
+
     const exportRows = isSearching ? filteredRows : rows
+
+    // Build flat data array
+    const dataRows: (string | number)[][] = []
     for (const row of exportRows) {
       for (const c of row.customers.slice().sort((a, b) => a.date.localeCompare(b.date))) {
-        csvRows.push([
-          row.product, c.date, c.customer, c.storage ?? '', c.rate ?? '', c.cwt ?? '', c.salesman ?? '', c.notes ?? '',
-        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+        dataRows.push([
+          row.product,
+          c.date ? format(parseISO(c.date), 'M/d/yyyy') : '',
+          c.customer,
+          c.storage ?? '',
+          c.rate ?? '',
+          c.cwt ?? '',
+          c.salesman ?? '',
+          c.notes ?? '',
+        ])
       }
     }
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `summary-${startYear}-${String(startMonth).padStart(2, '0')}_to_${endYear}-${String(endMonth).padStart(2, '0')}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+
+    // Styles
+    const headerStyle = {
+      font:      { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+      fill:      { fgColor: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: false },
+      border: {
+        top:    { style: 'thin', color: { rgb: '93C5FD' } },
+        bottom: { style: 'thin', color: { rgb: '93C5FD' } },
+        left:   { style: 'thin', color: { rgb: '93C5FD' } },
+        right:  { style: 'thin', color: { rgb: '93C5FD' } },
+      },
+    }
+    const cellBorder = {
+      top:    { style: 'thin', color: { rgb: 'D1D5DB' } },
+      bottom: { style: 'thin', color: { rgb: 'D1D5DB' } },
+      left:   { style: 'thin', color: { rgb: 'D1D5DB' } },
+      right:  { style: 'thin', color: { rgb: 'D1D5DB' } },
+    }
+    const evenFill = { fgColor: { rgb: 'F0F4FF' } }
+
+    const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...dataRows])
+
+    // Style header row
+    HEADERS.forEach((_, ci) => {
+      const ref = XLSX.utils.encode_cell({ r: 0, c: ci })
+      if (ws[ref]) ws[ref].s = headerStyle
+    })
+
+    // Style data rows
+    dataRows.forEach((row, ri) => {
+      const isEven = ri % 2 === 1
+      row.forEach((_, ci) => {
+        const ref = XLSX.utils.encode_cell({ r: ri + 1, c: ci })
+        if (!ws[ref]) ws[ref] = { v: '' }
+        ws[ref].s = {
+          border: cellBorder,
+          fill:   isEven ? evenFill : undefined,
+          font:   { sz: 10 },
+          alignment: ci === 5
+            ? { horizontal: 'right' }   // CWT right-aligned
+            : { horizontal: 'left', wrapText: ci === 7 }, // Notes wraps
+        }
+        // CWT as actual number
+        if (ci === 5 && typeof row[ci] === 'number') {
+          ws[ref].t = 'n'
+          ws[ref].z = '#,##0'
+        }
+      })
+    })
+
+    // Column widths + row height for header
+    ws['!cols'] = COL_WIDTHS.map(wch => ({ wch }))
+    ws['!rows'] = [{ hpt: 22 }] // header row taller
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Summary')
+    XLSX.writeFile(wb, `summary-${startYear}-${String(startMonth).padStart(2, '0')}_to_${endYear}-${String(endMonth).padStart(2, '0')}.xlsx`)
   }
 
   // ── Range label ─────────────────────────────────────────────────────────────
@@ -178,7 +242,7 @@ export default function SummaryPanel() {
         </div>
         {!loading && rows.length > 0 && (
           <button
-            onClick={exportCSV}
+            onClick={exportXLSX}
             className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
