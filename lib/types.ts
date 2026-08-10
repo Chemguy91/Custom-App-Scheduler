@@ -120,6 +120,17 @@ export interface BlackoutDay {
   created_at: string
 }
 
+// Misc admin-created events (meetings, company events) — visible to everyone
+export interface CompanyEvent {
+  id: string
+  title: string
+  date: string         // 'YYYY-MM-DD'
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Grouped by date for calendar display
 export interface DayData {
   date: string

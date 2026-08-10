@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ApprovalRequest, BlackoutDay, CapacityRule, Profile, Truck } from '@/lib/types'
+import { ApprovalRequest, BlackoutDay, CapacityRule, CompanyEvent, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
 import { useDemoProfile, useIsDemo, useDemoPersonas } from './DemoWrapper'
 
@@ -26,10 +26,11 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
   const [trucks, setTrucks] = useState<Truck[]>([])
   const [blackoutDays, setBlackoutDays] = useState<BlackoutDay[]>([])
+  const [companyEvents, setCompanyEvents] = useState<CompanyEvent[]>([])
   const [defaultCapacity, setDefaultCapacity] = useState('5')
   const [savingCapacity, setSavingCapacity] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'requests' | 'trucks' | 'capacity' | 'users' | 'settings' | 'demo'>('requests')
+  const [activeTab, setActiveTab] = useState<'requests' | 'trucks' | 'capacity' | 'events' | 'users' | 'settings' | 'demo'>('requests')
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
   const [newAlert, setNewAlert]           = useState<{ count: number; name: string } | null>(null)
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -43,7 +44,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [reqRes, profRes, rulesRes, trucksRes, blackoutRes, settingsRes] = await Promise.all([
+    const [reqRes, profRes, rulesRes, trucksRes, blackoutRes, settingsRes, eventsRes] = await Promise.all([
       supabase
         .from('approval_requests')
         .select(`*, profiles!approval_requests_salesman_id_fkey(full_name)`)
@@ -54,6 +55,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
       supabase.from('trucks_with_details').select('*').order('name'),
       supabase.from('blackout_days').select('*').order('date'),
       supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
+      supabase.from('company_events').select('*').order('date'),
     ])
 
     if (reqRes.data) {
@@ -66,6 +68,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
     if (rulesRes.data) setCapacityRules(rulesRes.data as CapacityRule[])
     if (trucksRes.data) setTrucks(trucksRes.data as Truck[])
     if (blackoutRes?.data) setBlackoutDays(blackoutRes.data as BlackoutDay[])
+    if (eventsRes?.data) setCompanyEvents(eventsRes.data as CompanyEvent[])
     if (settingsRes.data) setDefaultCapacity(settingsRes.data.value)
     setLoading(false)
   }, [supabase])
@@ -285,6 +288,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
           { id: 'requests',  label: 'Requests' },
           { id: 'trucks',    label: 'Trucks' },
           { id: 'capacity',  label: 'Capacity' },
+          { id: 'events',    label: 'Events' },
           { id: 'users',     label: 'Users' },
           { id: 'settings',  label: 'Settings' },
           { id: 'demo',      label: '🎯 Demo Mode' },
@@ -479,6 +483,22 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
                   onRefresh={fetchData}
                 />
               </div>
+            </div>
+          )}
+
+          {/* EVENTS TAB */}
+          {activeTab === 'events' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="font-semibold text-gray-900 mb-1">Company Events</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Schedule meetings, company events, or other misc calendar items. Visible to everyone; only admins can add, edit, or delete them.
+              </p>
+              <CompanyEventsManager
+                supabase={supabase}
+                adminId={profile.id}
+                events={companyEvents}
+                onRefresh={fetchData}
+              />
             </div>
           )}
 
@@ -1763,6 +1783,171 @@ function BlackoutDaysManager({
         </div>
       ) : (
         <p className="text-sm text-gray-400 italic">No blackout days set.</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Company Events Manager ──────────────────────────────────────────────────
+
+function CompanyEventsManager({
+  supabase,
+  adminId,
+  events,
+  onRefresh,
+}: {
+  supabase: ReturnType<typeof createClient>
+  adminId: string
+  events: CompanyEvent[]
+  onRefresh: () => void
+}) {
+  const [date, setDate]   = useState('')
+  const [title, setTitle] = useState('')
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg]     = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  function startEdit(ev: CompanyEvent) {
+    setEditingId(ev.id)
+    setDate(ev.date)
+    setTitle(ev.title)
+    setNotes(ev.notes ?? '')
+    setMsg('')
+  }
+
+  function resetForm() {
+    setEditingId(null)
+    setDate('')
+    setTitle('')
+    setNotes('')
+  }
+
+  async function saveEvent() {
+    if (!date || !title.trim()) { setMsg('Date and title are required.'); return }
+    setSaving(true)
+    setMsg('')
+
+    let error
+    if (editingId) {
+      const res = await supabase
+        .from('company_events')
+        .update({ date, title: title.trim(), notes: notes.trim() || null, updated_at: new Date().toISOString() })
+        .eq('id', editingId)
+      error = res.error
+    } else {
+      const res = await supabase
+        .from('company_events')
+        .insert({ date, title: title.trim(), notes: notes.trim() || null, created_by: adminId })
+      error = res.error
+    }
+
+    setSaving(false)
+    if (error) {
+      setMsg(`Error: ${error.message}`)
+    } else {
+      setMsg(editingId ? 'Event updated.' : 'Event added.')
+      resetForm()
+      onRefresh()
+      setTimeout(() => setMsg(''), 2000)
+    }
+  }
+
+  async function removeEvent(id: string) {
+    if (!confirm('Delete this event?')) return
+    await supabase.from('company_events').delete().eq('id', id)
+    onRefresh()
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Add / edit form */}
+      <div className="flex gap-3 flex-wrap items-end">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs font-medium text-gray-600 mb-1">Title</label>
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder='e.g. "Team meeting", "Company picnic"'
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Notes <span className="text-gray-400">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Time, location, agenda…"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <div className="flex gap-2">
+          {editingId && (
+            <button
+              onClick={resetForm}
+              className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            onClick={saveEvent}
+            disabled={!date || !title.trim() || saving}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            {saving ? 'Saving…' : editingId ? 'Update Event' : 'Add Event'}
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <p className={`text-sm ${msg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>{msg}</p>
+      )}
+
+      {/* Existing events */}
+      {events.length > 0 ? (
+        <div className="space-y-2 mt-2">
+          {events.map(ev => (
+            <div key={ev.id} className="flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 gap-3">
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-gray-900">
+                  {safeDate(ev.date, 'EEE, MMM d, yyyy')}
+                </span>
+                <span className="ml-2 text-sm text-indigo-700">{ev.title}</span>
+                {ev.notes && <p className="text-xs text-indigo-500 mt-0.5 truncate">{ev.notes}</p>}
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => startEdit(ev)}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => removeEvent(ev.id)}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400 italic">No company events scheduled.</p>
       )}
     </div>
   )
