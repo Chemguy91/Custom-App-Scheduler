@@ -5,6 +5,7 @@ export const PTO_HIDDEN_NAMES = [
   'Chem App TV',
   'Dan',
   'Demo',
+  'Demo Account',
   'Jon',
   'Kelley',
   'Office TV',
