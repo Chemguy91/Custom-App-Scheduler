@@ -7,9 +7,10 @@ import {
   parseISO, addMonths, subMonths, addWeeks, subWeeks, getDay,
 } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
-import { Appointment, BlackoutDay, CapacityRule, CompanyEvent, DailyCapacity, Profile, Truck } from '@/lib/types'
+import { Appointment, BlackoutDay, CapacityRule, CompanyEvent, DailyCapacity, PTOEvent, Profile, Truck } from '@/lib/types'
 import AppointmentModal from './AppointmentModal'
 import CompanyEventModal from './CompanyEventModal'
+import PTOModal from './PTOModal'
 import { useDemoProfile, useIsDemo, useDemoPersonas } from './DemoWrapper'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -162,6 +163,9 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
   const [blackoutDays, setBlackoutDays] = useState<BlackoutDay[]>([])
   const [companyEvents, setCompanyEvents] = useState<CompanyEvent[]>([])
   const [eventModalDate, setEventModalDate] = useState<string | null>(null)
+  const [ptoEvents, setPtoEvents]       = useState<PTOEvent[]>([])
+  const [ptoModalDate, setPtoModalDate] = useState<string | null>(null)
+  const [allProfiles, setAllProfiles]   = useState<{ id: string; full_name: string }[]>([])
   const [defaultMax, setDefaultMax]     = useState(5)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [loading, setLoading]           = useState(true)
@@ -222,7 +226,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
     const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
     const monthEnd   = format(endOfMonth(currentMonth),   'yyyy-MM-dd')
 
-    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes, eventsRes] =
+    const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes, eventsRes, ptoRes] =
       await Promise.all([
         supabase.from('appointments_with_details').select('*').gte('date', monthStart).lte('date', monthEnd).neq('status', 'rejected').eq('is_demo', isDemo),
         supabase.from('daily_capacity').select('*').gte('date', monthStart).lte('date', monthEnd),
@@ -231,6 +235,8 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
         supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
         supabase.from('blackout_days').select('*').gte('date', monthStart).lte('date', monthEnd),
         supabase.from('company_events').select('*').gte('date', monthStart).lte('date', monthEnd),
+        // Overlap: PTO whose range touches this month at all
+        supabase.from('pto_events_with_details').select('*').lte('start_date', monthEnd).gte('end_date', monthStart),
       ])
 
     if (apptRes.data) {
@@ -247,11 +253,16 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
     if (settingsRes.data) setDefaultMax(parseInt((settingsRes.data as unknown as { value: string }).value) || 5)
     if (blackoutRes.data) setBlackoutDays(blackoutRes.data as unknown as BlackoutDay[])
     if (eventsRes.data)   setCompanyEvents(eventsRes.data as unknown as CompanyEvent[])
+    if (ptoRes.data)      setPtoEvents(ptoRes.data as unknown as PTOEvent[])
 
     if (isAdmin) {
       const smRes = await supabase.from('profiles').select('id, full_name').eq('role', 'sales_manager').order('full_name')
       if (smRes.data) {
         setSalesManagers((smRes.data as unknown as { id: string; full_name: string }[]).map(p => ({ id: p.id, name: p.full_name })))
+      }
+      const allProfRes = await supabase.from('profiles').select('id, full_name').order('full_name')
+      if (allProfRes.data) {
+        setAllProfiles(allProfRes.data as unknown as { id: string; full_name: string }[])
       }
     }
 
@@ -280,6 +291,10 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
 
   function getEventsForDate(dateStr: string): CompanyEvent[] {
     return companyEvents.filter(ev => ev.date === dateStr)
+  }
+
+  function getPTOForDate(dateStr: string): PTOEvent[] {
+    return ptoEvents.filter(ev => ev.start_date <= dateStr && ev.end_date >= dateStr)
   }
 
   function getTrucksForDate(dateStr: string): Truck[] {
@@ -628,6 +643,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                     : dayAppts
             const blackout  = blackoutDays.find(b => b.date === dateStr) ?? null
             const dayEvents = getEventsForDate(dateStr)
+            const dayPTO    = getPTOForDate(dateStr)
             const { max, isWeekendBlocked } = getDateCapacity(dateStr)
             // Sum slot_count across all non-rejected appointments on this day.
             // Applications default to 1 slot; disinfects default to 0 but can be raised.
@@ -674,6 +690,16 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                         +
                       </button>
                     )}
+                    {/* PTO quick-add button — available to every user */}
+                    {inMonth && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
+                        title="Add / view PTO"
+                        className="w-5 h-5 flex items-center justify-center rounded text-amber-400 hover:text-amber-600 hover:bg-amber-50 text-sm leading-none"
+                      >
+                        +
+                      </button>
+                    )}
                     {/* Job count badge — visible to all users */}
                     {inMonth && visibleAppts.length > 0 && (
                       <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
@@ -710,6 +736,29 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                         className="text-xs text-indigo-500 cursor-pointer"
                       >
                         +{dayEvents.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* PTO banner(s) — visible to everyone */}
+                {dayPTO.length > 0 && inMonth && (
+                  <div className="mt-1 space-y-0.5">
+                    {dayPTO.slice(0, 2).map(ev => (
+                      <span
+                        key={ev.id}
+                        onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
+                        className="text-xs px-1.5 py-0.5 rounded font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 cursor-pointer block truncate"
+                      >
+                        {ev.employee_name ?? 'PTO'} · PTO
+                      </span>
+                    ))}
+                    {dayPTO.length > 2 && (
+                      <span
+                        onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
+                        className="text-xs text-amber-600 cursor-pointer"
+                      >
+                        +{dayPTO.length - 2} more
                       </span>
                     )}
                   </div>
@@ -783,6 +832,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
             const isPast  = isBefore(day, startOfDay(new Date()))
             const blackout = blackoutDays.find(b => b.date === dateStr) ?? null
             const dayEvents = getEventsForDate(dateStr)
+            const dayPTO    = getPTOForDate(dateStr)
             const dayAppts = getAppointments(dateStr)
             const visibleAppts = isApplicator
               ? (applicatorViewAll ? dayAppts : dayAppts.filter(a => myTruck ? a.truck_id === myTruck.id : false))
@@ -810,15 +860,24 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
               >
                 {/* Day header */}
                 <div className="text-center mb-1 relative">
-                  {isAdmin && (
+                  <div className="absolute top-0 right-0 flex items-center gap-0.5">
+                    {isAdmin && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setEventModalDate(dateStr) }}
+                        title="Add company event"
+                        className="w-5 h-5 flex items-center justify-center rounded text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 text-sm leading-none"
+                      >
+                        +
+                      </button>
+                    )}
                     <button
-                      onClick={e => { e.stopPropagation(); setEventModalDate(dateStr) }}
-                      title="Add company event"
-                      className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center rounded text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 text-sm leading-none"
+                      onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
+                      title="Add / view PTO"
+                      className="w-5 h-5 flex items-center justify-center rounded text-amber-400 hover:text-amber-600 hover:bg-amber-50 text-sm leading-none"
                     >
                       +
                     </button>
-                  )}
+                  </div>
                   <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">{format(day, 'EEE')}</p>
                   <span className={`text-base font-bold w-8 h-8 flex items-center justify-center rounded-full mx-auto ${
                     today ? 'bg-blue-600 text-white' : isPast ? 'cal-past-num' : 'text-gray-900 dark:text-white'
@@ -846,6 +905,15 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                       className="text-xs px-1.5 py-0.5 rounded font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 cursor-pointer block truncate"
                     >
                       {ev.title}
+                    </span>
+                  ))}
+                  {dayPTO.map(ev => (
+                    <span
+                      key={ev.id}
+                      onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
+                      className="text-xs px-1.5 py-0.5 rounded font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 cursor-pointer block truncate"
+                    >
+                      {ev.employee_name ?? 'PTO'} · PTO
                     </span>
                   ))}
                   {visibleAppts.map(a => {
@@ -890,9 +958,9 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                         (!adminTruckFilter    || a.truck_id    === adminTruckFilter)
                       )
                     : dayAppts
-            return { date: d, dateStr, appts: visible, events: getEventsForDate(dateStr) }
+            return { date: d, dateStr, appts: visible, events: getEventsForDate(dateStr), pto: getPTOForDate(dateStr) }
           })
-          .filter(d => d.appts.length > 0 || d.events.length > 0)
+          .filter(d => d.appts.length > 0 || d.events.length > 0 || d.pto.length > 0)
 
         if (listDays.length === 0) {
           return (
@@ -904,7 +972,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
 
         return (
           <div className="space-y-4">
-            {listDays.map(({ date, dateStr, appts, events }) => {
+            {listDays.map(({ date, dateStr, appts, events, pto }) => {
               const blackout = blackoutDays.find(b => b.date === dateStr)
               const today    = isToday(date)
               return (
@@ -932,6 +1000,12 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                           + Event
                         </button>
                       )}
+                      <button
+                        onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
+                        className="text-xs text-amber-600 hover:text-amber-800 font-medium"
+                      >
+                        + PTO
+                      </button>
                       {appts.length > 0 && (
                         <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
                           {appts.length} job{appts.length !== 1 ? 's' : ''}
@@ -951,6 +1025,22 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                         >
                           <span className="text-xs px-2 py-0.5 rounded font-medium bg-indigo-100 text-indigo-700 flex-shrink-0">Event</span>
                           <p className="text-sm text-indigo-900 dark:text-indigo-200 truncate">{ev.title}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* PTO rows */}
+                  {pto.length > 0 && (
+                    <div className="px-4 py-2 space-y-1 border-b border-gray-50 dark:border-gray-800 bg-amber-50/50 dark:bg-amber-950/30">
+                      {pto.map(ev => (
+                        <div
+                          key={ev.id}
+                          onClick={() => setPtoModalDate(dateStr)}
+                          className="flex items-center gap-2 cursor-pointer hover:opacity-80"
+                        >
+                          <span className="text-xs px-2 py-0.5 rounded font-medium bg-amber-100 text-amber-700 flex-shrink-0">PTO</span>
+                          <p className="text-sm text-amber-900 dark:text-amber-200 truncate">{ev.employee_name ?? 'Employee'}</p>
                         </div>
                       ))}
                     </div>
@@ -1001,6 +1091,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-300 inline-block" />Full</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-100 border border-gray-300 inline-block" />Approval required</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded inline-block cal-blackout border border-red-300" />Blocked / Holiday</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-100 border border-amber-300 inline-block" />Employee PTO</span>
           </div>
         )}
         {!isViewer && (
@@ -1055,6 +1146,18 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
           adminId={profile.id}
           existingEvents={getEventsForDate(eventModalDate)}
           onClose={() => setEventModalDate(null)}
+          onSuccess={() => { fetchData() }}
+        />
+      )}
+
+      {ptoModalDate && (
+        <PTOModal
+          date={ptoModalDate}
+          profile={profile}
+          isAdmin={isAdmin}
+          allProfiles={allProfiles}
+          existingForDate={getPTOForDate(ptoModalDate)}
+          onClose={() => setPtoModalDate(null)}
           onSuccess={() => { fetchData() }}
         />
       )}

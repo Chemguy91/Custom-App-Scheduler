@@ -131,6 +131,22 @@ export interface CompanyEvent {
   updated_at: string
 }
 
+// Employee-requested PTO — visible to everyone, owned by the employee
+// (or by whichever admin logged it on their behalf). No approval step;
+// it shows on the calendar as soon as it's added.
+export interface PTOEvent {
+  id: string
+  employee_id: string
+  start_date: string   // 'YYYY-MM-DD'
+  end_date: string      // 'YYYY-MM-DD'
+  reason: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  // joined
+  employee_name?: string
+}
+
 // Grouped by date for calendar display
 export interface DayData {
   date: string

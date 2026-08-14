@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ApprovalRequest, BlackoutDay, CapacityRule, CompanyEvent, Profile, Truck } from '@/lib/types'
+import { ApprovalRequest, BlackoutDay, CapacityRule, CompanyEvent, PTOEvent, Profile, Truck } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
 import { useDemoProfile, useIsDemo, useDemoPersonas } from './DemoWrapper'
 
@@ -27,6 +27,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
   const [trucks, setTrucks] = useState<Truck[]>([])
   const [blackoutDays, setBlackoutDays] = useState<BlackoutDay[]>([])
   const [companyEvents, setCompanyEvents] = useState<CompanyEvent[]>([])
+  const [ptoEvents, setPtoEvents] = useState<PTOEvent[]>([])
   const [defaultCapacity, setDefaultCapacity] = useState('5')
   const [savingCapacity, setSavingCapacity] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -44,7 +45,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [reqRes, profRes, rulesRes, trucksRes, blackoutRes, settingsRes, eventsRes] = await Promise.all([
+    const [reqRes, profRes, rulesRes, trucksRes, blackoutRes, settingsRes, eventsRes, ptoRes] = await Promise.all([
       supabase
         .from('approval_requests')
         .select(`*, profiles!approval_requests_salesman_id_fkey(full_name)`)
@@ -56,6 +57,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
       supabase.from('blackout_days').select('*').order('date'),
       supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
       supabase.from('company_events').select('*').order('date'),
+      supabase.from('pto_events_with_details').select('*').order('start_date'),
     ])
 
     if (reqRes.data) {
@@ -69,6 +71,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
     if (trucksRes.data) setTrucks(trucksRes.data as Truck[])
     if (blackoutRes?.data) setBlackoutDays(blackoutRes.data as BlackoutDay[])
     if (eventsRes?.data) setCompanyEvents(eventsRes.data as CompanyEvent[])
+    if (ptoRes?.data) setPtoEvents(ptoRes.data as PTOEvent[])
     if (settingsRes.data) setDefaultCapacity(settingsRes.data.value)
     setLoading(false)
   }, [supabase])
@@ -488,17 +491,33 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
 
           {/* EVENTS TAB */}
           {activeTab === 'events' && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="font-semibold text-gray-900 mb-1">Company Events</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Schedule meetings, company events, or other misc calendar items. Visible to everyone; only admins can add, edit, or delete them.
-              </p>
-              <CompanyEventsManager
-                supabase={supabase}
-                adminId={profile.id}
-                events={companyEvents}
-                onRefresh={fetchData}
-              />
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="font-semibold text-gray-900 mb-1">Company Events</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Schedule meetings, company events, or other misc calendar items. Visible to everyone; only admins can add, edit, or delete them.
+                </p>
+                <CompanyEventsManager
+                  supabase={supabase}
+                  adminId={profile.id}
+                  events={companyEvents}
+                  onRefresh={fetchData}
+                />
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="font-semibold text-gray-900 mb-1">Employee PTO</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Every employee can request their own PTO from the calendar — no approval needed, it shows up right away. Admins can log PTO on behalf of anyone here, and can edit or remove any entry.
+                </p>
+                <PTOManager
+                  supabase={supabase}
+                  adminId={profile.id}
+                  profiles={profiles}
+                  events={ptoEvents}
+                  onRefresh={fetchData}
+                />
+              </div>
             </div>
           )}
 
@@ -1948,6 +1967,206 @@ function CompanyEventsManager({
         </div>
       ) : (
         <p className="text-sm text-gray-400 italic">No company events scheduled.</p>
+      )}
+    </div>
+  )
+}
+
+// ─── PTO Manager (admin view of every employee's PTO) ────────────────────────
+
+function PTOManager({
+  supabase,
+  adminId,
+  profiles,
+  events,
+  onRefresh,
+}: {
+  supabase: ReturnType<typeof createClient>
+  adminId: string
+  profiles: Profile[]
+  events: PTOEvent[]
+  onRefresh: () => void
+}) {
+  const [employeeId, setEmployeeId] = useState(adminId)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  function startEdit(ev: PTOEvent) {
+    setEditingId(ev.id)
+    setEmployeeId(ev.employee_id)
+    setStartDate(ev.start_date)
+    setEndDate(ev.end_date)
+    setReason(ev.reason ?? '')
+    setMsg('')
+  }
+
+  function resetForm() {
+    setEditingId(null)
+    setEmployeeId(adminId)
+    setStartDate('')
+    setEndDate('')
+    setReason('')
+  }
+
+  async function savePTO() {
+    if (!startDate || !endDate || !employeeId) { setMsg('Employee, start date, and end date are required.'); return }
+    if (endDate < startDate) { setMsg('End date must be on or after the start date.'); return }
+    setSaving(true)
+    setMsg('')
+
+    let error
+    if (editingId) {
+      const res = await supabase
+        .from('pto_events')
+        .update({
+          employee_id: employeeId,
+          start_date: startDate,
+          end_date: endDate,
+          reason: reason.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingId)
+      error = res.error
+    } else {
+      const res = await supabase
+        .from('pto_events')
+        .insert({
+          employee_id: employeeId,
+          start_date: startDate,
+          end_date: endDate,
+          reason: reason.trim() || null,
+          created_by: adminId,
+        })
+      error = res.error
+    }
+
+    setSaving(false)
+    if (error) {
+      setMsg(`Error: ${error.message}`)
+    } else {
+      setMsg(editingId ? 'PTO updated.' : 'PTO added.')
+      resetForm()
+      onRefresh()
+      setTimeout(() => setMsg(''), 2000)
+    }
+  }
+
+  async function removePTO(id: string) {
+    if (!confirm('Delete this PTO entry?')) return
+    await supabase.from('pto_events').delete().eq('id', id)
+    onRefresh()
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Add / edit form */}
+      <div className="flex gap-3 flex-wrap items-end">
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs font-medium text-gray-600 mb-1">Employee</label>
+          <select
+            value={employeeId}
+            onChange={e => setEmployeeId(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+          >
+            {profiles.map(p => (
+              <option key={p.id} value={p.id}>{p.full_name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={e => {
+              setStartDate(e.target.value)
+              if (endDate && e.target.value > endDate) setEndDate(e.target.value)
+            }}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">End date</label>
+          <input
+            type="date"
+            value={endDate}
+            min={startDate || undefined}
+            onChange={e => setEndDate(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Reason <span className="text-gray-400">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder="e.g. Vacation, doctor appointment…"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+        <div className="flex gap-2">
+          {editingId && (
+            <button
+              onClick={resetForm}
+              className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            onClick={savePTO}
+            disabled={!startDate || !endDate || !employeeId || saving}
+            className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            {saving ? 'Saving…' : editingId ? 'Update PTO' : 'Add PTO'}
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <p className={`text-sm ${msg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>{msg}</p>
+      )}
+
+      {/* Existing PTO */}
+      {events.length > 0 ? (
+        <div className="space-y-2 mt-2">
+          {events.map(ev => (
+            <div key={ev.id} className="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 gap-3">
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-gray-900">{ev.employee_name ?? 'Employee'}</span>
+                <span className="ml-2 text-sm text-amber-700">
+                  {ev.start_date === ev.end_date
+                    ? safeDate(ev.start_date, 'EEE, MMM d, yyyy')
+                    : `${safeDate(ev.start_date, 'MMM d')} – ${safeDate(ev.end_date, 'MMM d, yyyy')}`}
+                </span>
+                {ev.reason && <p className="text-xs text-amber-500 mt-0.5 truncate">{ev.reason}</p>}
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => startEdit(ev)}
+                  className="text-xs text-amber-600 hover:text-amber-800 font-medium"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => removePTO(ev.id)}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400 italic">No PTO scheduled.</p>
       )}
     </div>
   )
