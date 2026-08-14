@@ -8,6 +8,7 @@ import {
 } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
 import { Appointment, BlackoutDay, CapacityRule, CompanyEvent, DailyCapacity, PTOEvent, Profile, Truck } from '@/lib/types'
+import { isPtoHiddenName } from '@/lib/pto'
 import AppointmentModal from './AppointmentModal'
 import CompanyEventModal from './CompanyEventModal'
 import PTOModal from './PTOModal'
@@ -190,6 +191,8 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
   const isSalesManager = profile.role === 'sales_manager'
   const isAdmin        = profile.role === 'admin'
   const canSchedule    = isSalesManager || isAdmin
+  // Viewers can't request PTO unless an admin has flipped their per-user override on
+  const canAddPTO      = !isViewer || profile.pto_override === true
 
   // The truck assigned to this applicator (use demo persona ID when in demo mode)
   const effectiveApplicatorId = isDemo && demoApplicatorId ? demoApplicatorId : profile.id
@@ -253,7 +256,9 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
     if (settingsRes.data) setDefaultMax(parseInt((settingsRes.data as unknown as { value: string }).value) || 5)
     if (blackoutRes.data) setBlackoutDays(blackoutRes.data as unknown as BlackoutDay[])
     if (eventsRes.data)   setCompanyEvents(eventsRes.data as unknown as CompanyEvent[])
-    if (ptoRes.data)      setPtoEvents(ptoRes.data as unknown as PTOEvent[])
+    if (ptoRes.data) {
+      setPtoEvents((ptoRes.data as unknown as PTOEvent[]).filter(ev => !isPtoHiddenName(ev.employee_name)))
+    }
 
     if (isAdmin) {
       const smRes = await supabase.from('profiles').select('id, full_name').eq('role', 'sales_manager').order('full_name')
@@ -262,7 +267,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
       }
       const allProfRes = await supabase.from('profiles').select('id, full_name').order('full_name')
       if (allProfRes.data) {
-        setAllProfiles(allProfRes.data as unknown as { id: string; full_name: string }[])
+        setAllProfiles((allProfRes.data as unknown as { id: string; full_name: string }[]).filter(p => !isPtoHiddenName(p.full_name)))
       }
     }
 
@@ -690,8 +695,8 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                         +
                       </button>
                     )}
-                    {/* PTO quick-add button — available to every user */}
-                    {inMonth && (
+                    {/* PTO quick-add button — every user except non-override viewers */}
+                    {canAddPTO && inMonth && (
                       <button
                         onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
                         title="Add / view PTO"
@@ -870,13 +875,15 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                         +
                       </button>
                     )}
-                    <button
-                      onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
-                      title="Add / view PTO"
-                      className="w-5 h-5 flex items-center justify-center rounded text-amber-400 hover:text-amber-600 hover:bg-amber-50 text-sm leading-none"
-                    >
-                      +
-                    </button>
+                    {canAddPTO && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
+                        title="Add / view PTO"
+                        className="w-5 h-5 flex items-center justify-center rounded text-amber-400 hover:text-amber-600 hover:bg-amber-50 text-sm leading-none"
+                      >
+                        +
+                      </button>
+                    )}
                   </div>
                   <p className="text-xs text-gray-400 dark:text-gray-500 font-medium">{format(day, 'EEE')}</p>
                   <span className={`text-base font-bold w-8 h-8 flex items-center justify-center rounded-full mx-auto ${
@@ -1000,12 +1007,14 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
                           + Event
                         </button>
                       )}
-                      <button
-                        onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
-                        className="text-xs text-amber-600 hover:text-amber-800 font-medium"
-                      >
-                        + PTO
-                      </button>
+                      {canAddPTO && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setPtoModalDate(dateStr) }}
+                          className="text-xs text-amber-600 hover:text-amber-800 font-medium"
+                        >
+                          + PTO
+                        </button>
+                      )}
                       {appts.length > 0 && (
                         <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
                           {appts.length} job{appts.length !== 1 ? 's' : ''}
@@ -1155,6 +1164,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
           date={ptoModalDate}
           profile={profile}
           isAdmin={isAdmin}
+          canAdd={canAddPTO}
           allProfiles={allProfiles}
           existingForDate={getPTOForDate(ptoModalDate)}
           onClose={() => setPtoModalDate(null)}

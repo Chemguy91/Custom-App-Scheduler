@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ApprovalRequest, BlackoutDay, CapacityRule, CompanyEvent, PTOEvent, Profile, Truck } from '@/lib/types'
+import { isPtoHiddenName } from '@/lib/pto'
 import { format, parseISO } from 'date-fns'
 import { useDemoProfile, useIsDemo, useDemoPersonas } from './DemoWrapper'
 
@@ -71,7 +72,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
     if (trucksRes.data) setTrucks(trucksRes.data as Truck[])
     if (blackoutRes?.data) setBlackoutDays(blackoutRes.data as BlackoutDay[])
     if (eventsRes?.data) setCompanyEvents(eventsRes.data as CompanyEvent[])
-    if (ptoRes?.data) setPtoEvents(ptoRes.data as PTOEvent[])
+    if (ptoRes?.data) setPtoEvents((ptoRes.data as PTOEvent[]).filter(ev => !isPtoHiddenName(ev.employee_name)))
     if (settingsRes.data) setDefaultCapacity(settingsRes.data.value)
     setLoading(false)
   }, [supabase])
@@ -651,6 +652,14 @@ function UsersTab({
     }
   }
 
+  async function togglePtoOverride(p: Profile) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ pto_override: !p.pto_override })
+      .eq('id', p.id)
+    if (!error) onRefresh()
+  }
+
   async function saveEdit() {
     setSaving(true); setMsg(''); setIsError(false)
     const body: Record<string, string> = { userId: editingId! }
@@ -691,6 +700,7 @@ function UsersTab({
               <th className="text-left px-4 py-3 font-medium text-gray-500">Name</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Role</th>
               <th className="text-left px-4 py-3 font-medium text-gray-500">Joined</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-500">PTO access</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -702,7 +712,7 @@ function UsersTab({
                 <tr key={p.id} className={`border-b border-gray-50 last:border-0 ${isEditing ? 'bg-blue-50' : ''}`}>
                   {isEditing ? (
                     /* ── Edit row ── */
-                    <td colSpan={4} className="px-4 py-4">
+                    <td colSpan={5} className="px-4 py-4">
                       <div className="space-y-3">
                         <div className="flex gap-3 flex-wrap">
                           <div className="flex-1 min-w-[160px]">
@@ -769,6 +779,21 @@ function UsersTab({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-500">{safeDate(p.created_at, 'MMM d, yyyy')}</td>
+                      <td className="px-4 py-3">
+                        {p.role === 'viewer' ? (
+                          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!!p.pto_override}
+                              onChange={() => togglePtoOverride(p)}
+                              className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                            />
+                            Can add PTO
+                          </label>
+                        ) : (
+                          <span className="text-xs text-gray-300">Always allowed</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-3">
                           <button
@@ -1995,6 +2020,9 @@ function PTOManager({
   const [msg, setMsg] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
 
+  // Shared / demo accounts are hidden from the "who is this for" picker
+  const pickableProfiles = profiles.filter(p => !isPtoHiddenName(p.full_name))
+
   function startEdit(ev: PTOEvent) {
     setEditingId(ev.id)
     setEmployeeId(ev.employee_id)
@@ -2072,7 +2100,7 @@ function PTOManager({
             onChange={e => setEmployeeId(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
           >
-            {profiles.map(p => (
+            {pickableProfiles.map(p => (
               <option key={p.id} value={p.id}>{p.full_name}</option>
             ))}
           </select>

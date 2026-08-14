@@ -5,6 +5,9 @@ export interface Profile {
   full_name: string
   role: Role
   created_at: string
+  // Per-user override letting a normally view-only 'viewer' account request PTO.
+  // Ignored for every other role (they can always request PTO).
+  pto_override?: boolean
 }
 
 export interface DailyCapacity {
