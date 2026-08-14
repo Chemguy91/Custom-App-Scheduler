@@ -6,6 +6,7 @@ import { ApprovalRequest, BlackoutDay, CapacityRule, CompanyEvent, PTOEvent, Pro
 import { isPtoHiddenName } from '@/lib/pto'
 import { format, parseISO } from 'date-fns'
 import { useDemoProfile, useIsDemo, useDemoPersonas } from './DemoWrapper'
+import DateRangePicker from './DateRangePicker'
 
 // Safe date formatter — returns '—' for null/empty/invalid dates instead of throwing
 function safeDate(d: string | null | undefined, fmt: string): string {
@@ -786,7 +787,7 @@ function UsersTab({
                               type="checkbox"
                               checked={!!p.pto_override}
                               onChange={() => togglePtoOverride(p)}
-                              className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                              className="rounded border-gray-300 text-red-600 focus:ring-red-500"
                             />
                             Can add PTO
                           </label>
@@ -2098,33 +2099,19 @@ function PTOManager({
           <select
             value={employeeId}
             onChange={e => setEmployeeId(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
           >
             {pickableProfiles.map(p => (
               <option key={p.id} value={p.id}>{p.full_name}</option>
             ))}
           </select>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Start date</label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={e => {
-              setStartDate(e.target.value)
-              if (endDate && e.target.value > endDate) setEndDate(e.target.value)
-            }}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">End date</label>
-          <input
-            type="date"
-            value={endDate}
-            min={startDate || undefined}
-            onChange={e => setEndDate(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+        <div className="min-w-[220px]">
+          <label className="block text-xs font-medium text-gray-600 mb-1">Dates</label>
+          <DateRangePicker
+            startDate={startDate}
+            endDate={endDate}
+            onChange={(start, end) => { setStartDate(start); setEndDate(end) }}
           />
         </div>
         <div className="flex-1 min-w-[160px]">
@@ -2136,7 +2123,7 @@ function PTOManager({
             value={reason}
             onChange={e => setReason(e.target.value)}
             placeholder="e.g. Vacation, doctor appointment…"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
           />
         </div>
         <div className="flex gap-2">
@@ -2151,7 +2138,7 @@ function PTOManager({
           <button
             onClick={savePTO}
             disabled={!startDate || !endDate || !employeeId || saving}
-            className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             {saving ? 'Saving…' : editingId ? 'Update PTO' : 'Add PTO'}
           </button>
@@ -2166,20 +2153,20 @@ function PTOManager({
       {events.length > 0 ? (
         <div className="space-y-2 mt-2">
           {events.map(ev => (
-            <div key={ev.id} className="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 gap-3">
+            <div key={ev.id} className="flex items-center justify-between pto-card border rounded-lg px-3 py-2 gap-3">
               <div className="min-w-0">
-                <span className="text-sm font-medium text-gray-900">{ev.employee_name ?? 'Employee'}</span>
-                <span className="ml-2 text-sm text-amber-700">
+                <span className="text-sm font-medium text-gray-900 dark:text-white">{ev.employee_name ?? 'Employee'}</span>
+                <span className="ml-2 text-sm text-red-600">
                   {ev.start_date === ev.end_date
                     ? safeDate(ev.start_date, 'EEE, MMM d, yyyy')
                     : `${safeDate(ev.start_date, 'MMM d')} – ${safeDate(ev.end_date, 'MMM d, yyyy')}`}
                 </span>
-                {ev.reason && <p className="text-xs text-amber-500 mt-0.5 truncate">{ev.reason}</p>}
+                {ev.reason && <p className="text-xs text-red-500 mt-0.5 truncate">{ev.reason}</p>}
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <button
                   onClick={() => startEdit(ev)}
-                  className="text-xs text-amber-600 hover:text-amber-800 font-medium"
+                  className="text-xs text-red-600 hover:text-red-800 font-medium"
                 >
                   Edit
                 </button>

@@ -186,3 +186,82 @@
 /* Purple (admin badge) */
 .dark .bg-purple-100  { background-color: #2e1065 !important; }
 .dark .text-purple-700 { color: #c084fc !important; }
+
+/* ─── PTO date-range calendar popover (react-day-picker) ──────────────────── */
+
+.pto-range-picker .rdp {
+  margin: 0;
+}
+.pto-range-picker .rdp-day_selected,
+.pto-range-picker .rdp-day_selected:focus-visible,
+.pto-range-picker .rdp-day_selected:hover {
+  color: #ffffff;
+}
+.dark .pto-range-picker .rdp-caption_label,
+.dark .pto-range-picker .rdp-head_cell,
+.dark .pto-range-picker .rdp-day {
+  color: #e5e7eb;
+}
+.dark .pto-range-picker .rdp-nav_button {
+  color: #e5e7eb;
+}
+.dark .pto-range-picker .rdp-day_today:not(.rdp-day_outside) {
+  color: #f87171;
+  font-weight: 700;
+}
+.dark .pto-range-picker .rdp-day_outside {
+  color: #6b7280;
+}
+.dark .pto-range-picker .rdp-button:hover:not([disabled]):not(.rdp-day_selected) {
+  background-color: #242424;
+}
+
+/* ─── PTO highlight — grey background, red letters ─────────────────────────
+   Replaces the earlier amber theme. Dark-mode greys are hand-picked to sit
+   close to the app's near-black surfaces (see #111111/#2a2a2a above) while
+   staying just bright enough to read as a highlight. */
+
+.pto-badge {
+  background-color: #f3f4f6; /* gray-100 */
+}
+.pto-badge:hover {
+  background-color: #e5e7eb; /* gray-200 */
+}
+.dark .pto-badge {
+  background-color: #1a1a1a;
+}
+.dark .pto-badge:hover {
+  background-color: #242424;
+}
+
+.pto-icon-btn:hover {
+  background-color: #f3f4f6;
+}
+.dark .pto-icon-btn:hover {
+  background-color: #1a1a1a;
+}
+
+.pto-card {
+  background-color: #f9fafb; /* gray-50 */
+  border-color: #e5e7eb;     /* gray-200 */
+}
+.dark .pto-card {
+  background-color: #161616;
+  border-color: #2a2a2a;
+}
+
+.pto-band {
+  background-color: rgba(243, 244, 246, 0.6);
+}
+.dark .pto-band {
+  background-color: rgba(26, 26, 26, 0.6);
+}
+
+.pto-swatch {
+  background-color: #f3f4f6;
+  border-color: #fca5a5; /* red-300 */
+}
+.dark .pto-swatch {
+  background-color: #1a1a1a;
+  border-color: #7f1d1d; /* red-900 */
+}

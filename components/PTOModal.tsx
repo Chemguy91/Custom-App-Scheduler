@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { PTOEvent, Profile } from '@/lib/types'
 import { format, parseISO } from 'date-fns'
+import DateRangePicker from './DateRangePicker'
 
 interface Props {
   date: string
@@ -151,22 +152,22 @@ export default function PTOModal({
           {existingForDate.length > 0 && !showForm && (
             <div className="space-y-2">
               {existingForDate.map(ev => (
-                <div key={ev.id} className="bg-amber-50 dark:bg-amber-950 border border-amber-100 dark:border-amber-900 rounded-xl px-3 py-2.5">
+                <div key={ev.id} className="pto-card border rounded-xl px-3 py-2.5">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-amber-900 dark:text-amber-200 truncate">
+                      <p className="text-sm font-medium text-red-700 truncate">
                         {ev.employee_name ?? 'Employee'}
                       </p>
-                      <p className="text-xs text-amber-700 dark:text-amber-400">{formatRange(ev)}</p>
+                      <p className="text-xs text-red-600">{formatRange(ev)}</p>
                     </div>
                     {canManage(ev) && (
                       <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => startEdit(ev)} className="text-xs text-amber-600 hover:text-amber-800 font-medium">Edit</button>
+                        <button onClick={() => startEdit(ev)} className="text-xs text-red-600 hover:text-red-800 font-medium">Edit</button>
                         <button onClick={() => remove(ev.id)} disabled={saving} className="text-xs text-red-400 hover:text-red-600 font-medium">Delete</button>
                       </div>
                     )}
                   </div>
-                  {ev.reason && <p className="text-sm text-amber-700 dark:text-amber-300 mt-1 whitespace-pre-wrap">{ev.reason}</p>}
+                  {ev.reason && <p className="text-sm text-red-600 mt-1 whitespace-pre-wrap">{ev.reason}</p>}
                 </div>
               ))}
             </div>
@@ -187,7 +188,7 @@ export default function PTOModal({
                   <select
                     value={employeeId}
                     onChange={e => setEmployeeId(e.target.value)}
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
                   >
                     {allProfiles.map(p => (
                       <option key={p.id} value={p.id}>
@@ -197,29 +198,14 @@ export default function PTOModal({
                   </select>
                 </div>
               )}
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start date</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={e => {
-                      setStartDate(e.target.value)
-                      if (e.target.value > endDate) setEndDate(e.target.value)
-                    }}
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End date</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    min={startDate}
-                    onChange={e => setEndDate(e.target.value)}
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dates</label>
+                <DateRangePicker
+                  startDate={startDate}
+                  endDate={endDate}
+                  onChange={(start, end) => { setStartDate(start); setEndDate(end) }}
+                />
+                <p className="text-xs text-gray-400 mt-1">Click a day to start, click another to pick the last day. Click the same day again for a single day off.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -230,7 +216,7 @@ export default function PTOModal({
                   onChange={e => setReason(e.target.value)}
                   rows={3}
                   placeholder="e.g. Vacation, doctor appointment…"
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
                 />
               </div>
 
@@ -249,7 +235,7 @@ export default function PTOModal({
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+                  className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-sm font-medium py-2 rounded-lg transition-colors"
                 >
                   {saving ? 'Saving…' : editingId !== 'new' ? 'Update PTO' : 'Add PTO'}
                 </button>
@@ -261,7 +247,7 @@ export default function PTOModal({
           {!showForm && canAdd && (
             <button
               onClick={startAdd}
-              className="w-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+              className="w-full bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2 rounded-lg transition-colors"
             >
               + Request PTO
             </button>
