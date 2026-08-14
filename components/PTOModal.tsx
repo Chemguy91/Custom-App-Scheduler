@@ -9,6 +9,7 @@ interface Props {
   date: string
   profile: Profile
   isAdmin: boolean
+  canAdd: boolean                                    // false for viewers — they can look, not request
   allProfiles: { id: string; full_name: string }[]  // for the admin "on behalf of" picker
   existingForDate: PTOEvent[]                        // all PTO entries overlapping this date
   onClose: () => void
@@ -19,6 +20,7 @@ export default function PTOModal({
   date,
   profile,
   isAdmin,
+  canAdd,
   allProfiles,
   existingForDate,
   onClose,
@@ -171,7 +173,9 @@ export default function PTOModal({
           )}
 
           {existingForDate.length === 0 && !showForm && (
-            <p className="text-sm text-gray-400 italic">No PTO on this day.</p>
+            <p className="text-sm text-gray-400 italic">
+              {canAdd ? 'No PTO on this day.' : 'No PTO on this day. View-only access.'}
+            </p>
           )}
 
           {/* Add / Edit form — available to every user */}
@@ -253,8 +257,8 @@ export default function PTOModal({
             </form>
           )}
 
-          {/* Footer action — every user can request PTO */}
-          {!showForm && (
+          {/* Footer action — every user except viewers can request PTO */}
+          {!showForm && canAdd && (
             <button
               onClick={startAdd}
               className="w-full bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium py-2 rounded-lg transition-colors"
