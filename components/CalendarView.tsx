@@ -226,8 +226,13 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd')
-    const monthEnd   = format(endOfMonth(currentMonth),   'yyyy-MM-dd')
+    // Fetch whatever date range is actually visible on screen. Week view can span
+    // two different calendar months (e.g. Sep 27 – Oct 3), so pinning the query to
+    // currentMonth's start/end alone would silently skip days from the other month.
+    const queryStart = viewMode === 'week' ? weekStart : startOfWeek(startOfMonth(currentMonth))
+    const queryEnd   = viewMode === 'week' ? endOfWeek(weekStart, { weekStartsOn: 0 }) : endOfWeek(endOfMonth(currentMonth))
+    const monthStart = format(queryStart, 'yyyy-MM-dd')
+    const monthEnd   = format(queryEnd,   'yyyy-MM-dd')
 
     const [apptRes, capRes, rulesRes, trucksRes, settingsRes, blackoutRes, eventsRes, ptoRes] =
       await Promise.all([
@@ -272,7 +277,7 @@ export default function CalendarView({ profile: serverProfile }: { profile: Prof
     }
 
     setLoading(false)
-  }, [currentMonth, supabase, profile.id, isDemo, isAdmin])
+  }, [currentMonth, weekStart, viewMode, supabase, profile.id, isDemo, isAdmin])
 
   useEffect(() => { fetchData() }, [fetchData])
 
