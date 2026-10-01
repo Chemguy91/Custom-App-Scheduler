@@ -51,6 +51,16 @@ interface Props {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Fire-and-forget: lets the owner know a sales manager scheduled or requested
+// a job. Failures here must never block the actual scheduling flow.
+function notifyJobScheduled(details: { customerName: string; date: string; jobType: string; pending?: boolean }) {
+  fetch('/api/notify-job', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(details),
+  }).catch(() => {})
+}
+
 function blankForm(jobType: JobType = 'application') {
   return {
     jobType,
@@ -242,6 +252,7 @@ export default function AppointmentModal({
           is_demo:          isDemo,
         })
         if (error) throw error
+        notifyJobScheduled({ customerName: form.customerName, date, jobType: 'Stg Disinfect', pending: true })
       } else if (!isDisinfect && isFull && !isAdmin) {
         // Application that's over capacity → approval request
         const { error } = await supabase.from('approval_requests').insert({
@@ -257,6 +268,7 @@ export default function AppointmentModal({
           is_demo:       isDemo,
         })
         if (error) throw error
+        notifyJobScheduled({ customerName: form.customerName, date, jobType: 'Application', pending: true })
       } else {
         // Direct schedule (admin stg_disinfect, or open application slot)
         const { error } = await supabase.from('appointments').insert({
@@ -267,6 +279,9 @@ export default function AppointmentModal({
           ...appPayload,
         })
         if (error) throw error
+        if (!isAdmin) {
+          notifyJobScheduled({ customerName: form.customerName, date, jobType: isDisinfect ? 'Stg Disinfect' : 'Application' })
+        }
       }
       onSuccess()
     } catch (err: unknown) {
