@@ -51,14 +51,20 @@ interface Props {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Fire-and-forget: lets the owner know a sales manager scheduled or requested
-// a job. Failures here must never block the actual scheduling flow.
+// Fire-and-forget: lets the owner know someone scheduled or requested a job.
+// Failures here must never block the actual scheduling flow, but they are
+// logged to the browser console so a silent failure is at least visible
+// in devtools if someone goes looking.
 function notifyJobScheduled(details: { customerName: string; date: string; jobType: string; pending?: boolean }) {
   fetch('/api/notify-job', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(details),
-  }).catch(() => {})
+  })
+    .then(res => {
+      if (!res.ok) console.error('[notify-job] request failed', res.status)
+    })
+    .catch(err => console.error('[notify-job] request errored', err))
 }
 
 function blankForm(jobType: JobType = 'application') {
@@ -194,10 +200,6 @@ export default function AppointmentModal({
       setError('Please select at least one product.')
       return
     }
-    if (isDisinfect && !form.storageCapacity) {
-      setError('Please enter the storage capacity.')
-      return
-    }
 
     setLoading(true)
 
@@ -279,9 +281,9 @@ export default function AppointmentModal({
           ...appPayload,
         })
         if (error) throw error
-        if (!isAdmin) {
-          notifyJobScheduled({ customerName: form.customerName, date, jobType: isDisinfect ? 'Stg Disinfect' : 'Application' })
-        }
+        // Notify regardless of role — the server side decides whether the
+        // caller is the notification owner and skips self-notifying there.
+        notifyJobScheduled({ customerName: form.customerName, date, jobType: isDisinfect ? 'Stg Disinfect' : 'Application' })
       }
       onSuccess()
     } catch (err: unknown) {
@@ -617,10 +619,11 @@ export default function AppointmentModal({
             {/* Stg Disinfect: Storage Capacity */}
             {isDisinfectForm && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Storage Capacity (CWT)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Storage Capacity (CWT) <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
                 <input
                   type="number" min={0} step="any"
-                  required={isDisinfectForm}
                   value={form.storageCapacity}
                   onChange={e => set('storageCapacity', e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
