@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ApprovalRequest, BlackoutDay, CapacityRule, CompanyEvent, PTOEvent, Profile, Truck } from '@/lib/types'
+import { Appointment, ApprovalRequest, BlackoutDay, CapacityRule, CompanyEvent, PTOEvent, Profile, Truck } from '@/lib/types'
 import { isPtoHiddenName } from '@/lib/pto'
 import { format, parseISO } from 'date-fns'
 import { useDemoProfile, useIsDemo, useDemoPersonas } from './DemoWrapper'
@@ -24,6 +24,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
   const isDemo  = useIsDemo()
   const supabase = createClient()
   const [requests, setRequests] = useState<ApprovalRequest[]>([])
+  const [recentJobs, setRecentJobs] = useState<Appointment[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>([])
   const [trucks, setTrucks] = useState<Truck[]>([])
@@ -33,7 +34,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
   const [defaultCapacity, setDefaultCapacity] = useState('5')
   const [savingCapacity, setSavingCapacity] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'requests' | 'trucks' | 'capacity' | 'events' | 'users' | 'settings' | 'demo'>('requests')
+  const [activeTab, setActiveTab] = useState<'requests' | 'activity' | 'trucks' | 'capacity' | 'events' | 'users' | 'settings' | 'demo'>('requests')
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
   const [newAlert, setNewAlert]           = useState<{ count: number; name: string } | null>(null)
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -47,7 +48,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [reqRes, profRes, rulesRes, trucksRes, blackoutRes, settingsRes, eventsRes, ptoRes] = await Promise.all([
+    const [reqRes, profRes, rulesRes, trucksRes, blackoutRes, settingsRes, eventsRes, ptoRes, jobsRes] = await Promise.all([
       supabase
         .from('approval_requests')
         .select(`*, profiles!approval_requests_salesman_id_fkey(full_name)`)
@@ -60,6 +61,14 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
       supabase.from('settings').select('value').eq('key', 'default_daily_capacity').single(),
       supabase.from('company_events').select('*').order('date'),
       supabase.from('pto_events_with_details').select('*').order('start_date'),
+      // Job activity log — a fallback for seeing who scheduled what in case
+      // the email notification ever fails silently again.
+      supabase
+        .from('appointments_with_details')
+        .select('*')
+        .eq('is_demo', isDemo)
+        .order('created_at', { ascending: false })
+        .limit(100),
     ])
 
     if (reqRes.data) {
@@ -75,8 +84,9 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
     if (eventsRes?.data) setCompanyEvents(eventsRes.data as CompanyEvent[])
     if (ptoRes?.data) setPtoEvents((ptoRes.data as PTOEvent[]).filter(ev => !isPtoHiddenName(ev.employee_name)))
     if (settingsRes.data) setDefaultCapacity(settingsRes.data.value)
+    if (jobsRes?.data) setRecentJobs(jobsRes.data as unknown as Appointment[])
     setLoading(false)
-  }, [supabase])
+  }, [supabase, isDemo])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -109,10 +119,37 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
           fetchData()
         }
       )
+      .on(
+        // Jobs that don't need approval skip the table above entirely, so
+        // this is the only realtime signal for those — a fallback that
+        // doesn't depend on the email notification ever reaching an inbox.
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'appointments' },
+        (payload) => {
+          const appt = payload.new as { status: string; customer_name: string; job_type: string; created_by: string | null; is_demo: boolean }
+          if (appt.is_demo) return
+          if (appt.status === 'rejected') return
+          if (appt.created_by && appt.created_by === profile.id) return // don't alert on your own action
+
+          const label = appt.customer_name ?? 'Unknown customer'
+          const isDisinfect = appt.job_type === 'stg_disinfect'
+          const body = isDisinfect ? `${label} · Stg Disinfect` : label
+
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification('New Job Scheduled', { body, icon: '/favicon.ico' })
+          }
+
+          setNewAlert(prev => ({ count: (prev?.count ?? 0) + 1, name: label }))
+          if (alertTimerRef.current) clearTimeout(alertTimerRef.current)
+          alertTimerRef.current = setTimeout(() => setNewAlert(null), 10_000)
+
+          fetchData()
+        }
+      )
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [supabase, fetchData])
+  }, [supabase, fetchData, profile.id])
 
   async function handleApprovalAction(
     req: ApprovalRequest,
@@ -134,6 +171,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
         .insert({
           date:             req.date,
           salesman_id:      req.salesman_id,
+          created_by:       req.salesman_id,
           job_type:         req.job_type ?? 'application',
           customer_name:    req.customer_name,
           storage_name:     req.storage_name ?? null,
@@ -183,6 +221,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
       .insert({
         date:             req.date,
         salesman_id:      req.salesman_id,
+        created_by:       req.salesman_id,
         job_type:         req.job_type ?? 'application',
         customer_name:    req.customer_name,
         storage_name:     req.storage_name ?? null,
@@ -291,6 +330,7 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
       <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 flex-wrap">
         {([
           { id: 'requests',  label: 'Requests' },
+          { id: 'activity',  label: 'Job Activity' },
           { id: 'trucks',    label: 'Trucks' },
           { id: 'capacity',  label: 'Capacity' },
           { id: 'events',    label: 'Events' },
@@ -336,6 +376,54 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
             </div>
           )}
 
+          {/* ACTIVITY TAB — who scheduled what, independent of email notifications */}
+          {activeTab === 'activity' && (
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Last {recentJobs.length} jobs, newest first. This is a fallback — it always reflects what's
+                  actually in the database, even if the email notification fails.
+                </p>
+              </div>
+              {recentJobs.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">No jobs yet</div>
+              ) : (
+                <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {recentJobs.map(job => {
+                    const scheduledByOther = job.created_by_name && job.created_by_name !== job.salesman_name
+                    return (
+                      <li key={job.id} className="px-4 py-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{job.customer_name}</p>
+                            {job.job_type === 'stg_disinfect' && (
+                              <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">Stg Disinfect</span>
+                            )}
+                            {job.status === 'rejected' && (
+                              <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">Rejected</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            Job date: {safeDate(job.date, 'EEE, MMM d, yyyy')}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {scheduledByOther ? (
+                              <>Scheduled by <strong className="text-gray-700 dark:text-gray-300">{job.created_by_name}</strong> for {job.salesman_name}</>
+                            ) : (
+                              <>Scheduled by <strong className="text-gray-700 dark:text-gray-300">{job.created_by_name ?? job.salesman_name}</strong></>
+                            )}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap shrink-0">
+                          {job.created_at ? format(parseISO(job.created_at), 'MMM d, h:mm a') : '—'}
+                        </p>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* TRUCKS TAB */}
           {activeTab === 'trucks' && (
@@ -560,12 +648,12 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
         <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 bg-gray-900 text-white rounded-xl px-4 py-3 shadow-2xl">
           <div>
             <p className="text-sm font-semibold leading-tight">
-              {newAlert.count === 1 ? 'New approval request' : `${newAlert.count} new requests`}
+              {newAlert.count === 1 ? 'New job activity' : `${newAlert.count} new jobs`}
             </p>
             <p className="text-xs text-gray-300 mt-0.5 truncate max-w-[200px]">{newAlert.name}</p>
           </div>
           <button
-            onClick={() => { setActiveTab('requests'); setNewAlert(null) }}
+            onClick={() => { setActiveTab('activity'); setNewAlert(null) }}
             className="shrink-0 bg-white text-gray-900 text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
             View
@@ -2276,6 +2364,7 @@ function DemoModeTab({ supabase, adminId, profiles, trucks }: { supabase: Return
     const payload = {
       date:         form.date,
       salesman_id:  salesmanId,
+      created_by:   adminId,
       truck_id:     form.truck_id || null,
       job_type:     form.job_type,
       customer_name: form.customer_name,

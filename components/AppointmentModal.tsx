@@ -276,6 +276,7 @@ export default function AppointmentModal({
         const { error } = await supabase.from('appointments').insert({
           date,
           salesman_id: resolvedSalesmanId,
+          created_by:  currentProfile.id,
           status:      'confirmed',
           is_demo:     isDemo,
           ...appPayload,

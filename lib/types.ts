@@ -42,10 +42,14 @@ export interface Appointment {
   slot_count: number  // how many truck slots this appointment occupies (0 for disinfects by default)
   created_at: string
   updated_at: string
+  // Who actually scheduled this job — may differ from salesman_id when an
+  // admin books on behalf of a different account manager.
+  created_by: string | null
   // from view
   salesman_name?: string
   truck_name?: string
   applicator_name?: string
+  created_by_name?: string
 }
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
