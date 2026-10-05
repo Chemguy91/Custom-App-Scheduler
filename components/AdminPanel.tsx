@@ -19,6 +19,11 @@ const ALL_PRODUCTS = ['Smart Block', '1,4 Zap', 'DMN', 'Storox / Perox AG', 'Pur
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const WEEKDAYS = [1, 2, 3, 4, 5]
 
+// When the created_by migration + job-activity feature went live. Jobs
+// created before this had their creator backfilled to a best guess (the
+// assigned account manager), which is often wrong — see the Activity tab.
+const CREATOR_TRACKING_SINCE = new Date('2026-10-05T20:20:00Z')
+
 export default function AdminPanel({ profile: serverProfile }: { profile: Profile }) {
   const profile = useDemoProfile(serverProfile)
   const isDemo  = useIsDemo()
@@ -390,7 +395,13 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
               ) : (
                 <ul className="divide-y divide-gray-100 dark:divide-gray-800">
                   {recentJobs.map(job => {
-                    const scheduledByOther = job.created_by_name && job.created_by_name !== job.salesman_name
+                    // Jobs from before this feature shipped got their created_by
+                    // backfilled to a best guess (the assigned account manager) —
+                    // that guess is frequently wrong (e.g. an admin booking on
+                    // someone else's behalf), so never assert it as fact. Only
+                    // trust the attribution for jobs created after tracking began.
+                    const isTracked = job.created_at && new Date(job.created_at) >= CREATOR_TRACKING_SINCE
+                    const scheduledByOther = isTracked && job.created_by_name && job.created_by_name !== job.salesman_name
                     return (
                       <li key={job.id} className="px-4 py-3 flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -407,7 +418,9 @@ export default function AdminPanel({ profile: serverProfile }: { profile: Profil
                             Job date: {safeDate(job.date, 'EEE, MMM d, yyyy')}
                           </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {scheduledByOther ? (
+                            {!isTracked ? (
+                              <>Assigned to {job.salesman_name} <span className="italic">(scheduled before activity tracking — creator unknown)</span></>
+                            ) : scheduledByOther ? (
                               <>Scheduled by <strong className="text-gray-700 dark:text-gray-300">{job.created_by_name}</strong> for {job.salesman_name}</>
                             ) : (
                               <>Scheduled by <strong className="text-gray-700 dark:text-gray-300">{job.created_by_name ?? job.salesman_name}</strong></>
